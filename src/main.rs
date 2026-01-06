@@ -27,9 +27,11 @@ use tracing_subscriber::{EnvFilter, prelude::*};
 /* global const  *****************************************************************************************/
 
 const TICK_MS: u64 = 20;
-const MAX_DROP_LINES: usize = 4;
+const HEADER_LINES: usize = 7;
+const FLOOR_LINES: usize = 1;
 const POSE_LINES: usize = 5;
-const POSE_COUNT: usize = 5;
+const POSE_COUNT: usize = 9;
+const DEFAULT_ROWS: usize = 24;
 const FLOOR: &str = "==============================";
 const POSES: [[&str; POSE_LINES]; POSE_COUNT] = [
   ["   O   ", "  /|\\  ", "   |   ", "  / \\  ", " /   \\ "],
@@ -37,6 +39,10 @@ const POSES: [[&str; POSE_LINES]; POSE_COUNT] = [
   ["   O   ", "  /|\\  ", "   |   ", "  /_\\  ", " /   \\ "],
   ["   O   ", "  /|\\  ", "  _|_  ", "  /_\\  ", " /   \\ "],
   ["   O   ", "  /|\\  ", "  _|_  ", "  /_\\  ", " _/ \\_ "],
+  ["   O   ", "  /|\\  ", "  _|_  ", " _/_\\_ ", " _/ \\_ "],
+  ["   O   ", "  /|\\  ", " __|__ ", " _/_\\_ ", " _/ \\_ "],
+  ["   O   ", " _/|\\_ ", " __|__ ", " _/_\\_ ", " _/ \\_ "],
+  ["   O   ", " _/|\\_ ", " __|__ ", " _/_\\_ ", "__/ \\__"],
 ];
 
 /* trait  ************************************************************************************************/
@@ -83,6 +89,8 @@ struct FrameState<'a> {
   paused: bool,
   offset: usize,
   pose_idx: usize,
+  max_drop_lines: usize,
+  stretch: f64,
 }
 
 struct TerminalGuard;
@@ -130,11 +138,18 @@ fn init_tracing() -> Result<()> {
   Ok(())
 }
 
-fn format_mmss(duration: Duration) -> String {
+fn format_mmss_millis(duration: Duration) -> String {
   let total_secs = duration.as_secs();
   let minutes = total_secs / 60;
   let seconds = total_secs % 60;
-  format!("{:02}:{:02}", minutes, seconds)
+  let millis = duration.subsec_millis();
+  format!("{:02}:{:02}.{:03}", minutes, seconds, millis)
+}
+
+fn terminal_rows() -> usize {
+  terminal::size()
+    .map(|(_, rows)| rows as usize)
+    .unwrap_or(DEFAULT_ROWS)
 }
 
 fn read_input(timeout: Duration) -> Result<InputAction> {
@@ -153,14 +168,15 @@ fn read_input(timeout: Duration) -> Result<InputAction> {
   }
 }
 
-fn build_figure_lines(offset: usize, pose_idx: usize) -> Vec<String> {
+fn build_figure_lines(offset: usize, pose_idx: usize, max_drop_lines: usize) -> Vec<String> {
   let mut lines = Vec::new();
-  lines.extend(std::iter::repeat(String::new()).take(offset));
+  let clamped_offset = offset.min(max_drop_lines);
+  lines.extend(std::iter::repeat(String::new()).take(clamped_offset));
   let pose = &POSES[pose_idx.min(POSE_COUNT - 1)];
   lines.extend(pose.iter().map(|line| (*line).to_string()));
 
-  let total_body = MAX_DROP_LINES + POSE_LINES;
-  let current_body = offset + POSE_LINES;
+  let total_body = max_drop_lines + POSE_LINES;
+  let current_body = clamped_offset + POSE_LINES;
   if total_body > current_body {
     lines.extend(std::iter::repeat(String::new()).take(total_body - current_body));
   }
@@ -182,13 +198,20 @@ fn draw_frame(stdout: &mut io::Stdout, state: &FrameState) -> Result<()> {
     "Phase: {}  Tempo: down {:.1}s / up {:.1}s\r\n",
     state.phase, state.half_secs, state.half_secs
   ));
-  output.push_str(&format!("Time left: {}\r\n", format_mmss(state.remaining)));
+  output.push_str(&format!("伸長(100=伸,0=縮): {:.1}\r\n", state.stretch));
+  output.push_str(&format!(
+    "Time left: {}\r\n",
+    format_mmss_millis(state.remaining)
+  ));
   output.push_str(&format!("Status: {}\r\n", status));
   output.push_str("Controls: SPACE=Pause/Resume  ESC=Quit  Ctrl+C=Quit\r\n\r\n");
 
-  for line in build_figure_lines(state.offset, state.pose_idx) {
-    output.push_str(&line);
-    output.push_str("\r\n");
+  let figure_lines = build_figure_lines(state.offset, state.pose_idx, state.max_drop_lines);
+  for (idx, line) in figure_lines.iter().enumerate() {
+    output.push_str(line);
+    if idx + 1 < figure_lines.len() {
+      output.push_str("\r\n");
+    }
   }
 
   write!(stdout, "{}", output)?;
@@ -308,10 +331,12 @@ fn run_squat(args: SquatArgs) -> Result<()> {
     };
 
     let clamped = progress.clamp(0.0, 1.0);
-    let offset = (clamped * MAX_DROP_LINES as f64)
+    let max_drop_lines = terminal_rows().saturating_sub(HEADER_LINES + POSE_LINES + FLOOR_LINES);
+    let offset = (clamped * max_drop_lines as f64)
       .round()
-      .min(MAX_DROP_LINES as f64) as usize;
+      .min(max_drop_lines as f64) as usize;
     let pose_idx = (clamped * (POSE_COUNT.saturating_sub(1)) as f64).round() as usize;
+    let stretch = (1.0 - clamped) * 100.0;
 
     let remaining = total_duration.saturating_sub(elapsed);
     let current_rep = (completed.saturating_add(1)).min(args.count);
@@ -324,6 +349,8 @@ fn run_squat(args: SquatArgs) -> Result<()> {
       paused,
       offset,
       pose_idx,
+      max_drop_lines,
+      stretch,
     };
 
     draw_frame(&mut stdout, &state)?;
