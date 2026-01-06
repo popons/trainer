@@ -33,6 +33,7 @@ const FLOOR_LINES: usize = 1;
 const POSE_LINES: usize = 5;
 const POSE_COUNT: usize = 9;
 const DEFAULT_ROWS: usize = 24;
+const HOLD_SECS: f64 = 5.0;
 const FLOOR: &str = "==============================";
 const POSES: [[&str; POSE_LINES]; POSE_COUNT] = [
   ["   O   ", "  /|\\  ", "   |   ", "  / \\  ", " /   \\ "],
@@ -99,7 +100,7 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
     <div id="app">
       <div id="info">
         <div id="line1">Slow Squat  Rep: 1/__COUNT__</div>
-        <div id="line2">Phase: DOWN  Tempo: down 0.0s / up 0.0s</div>
+        <div id="line2">Phase: DOWN  Tempo: down 0.0s / hold 0.0s / up 0.0s</div>
         <div id="line3">伸長(100=伸,0=縮): 100.0</div>
         <div id="line4">Time left: 00:00.000</div>
         <div id="line5">Status: RUNNING</div>
@@ -115,7 +116,10 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
         const total = config.duration;
         const count = config.count;
         const repDuration = total / count;
-        const half = repDuration / 2;
+        const hold = __HOLD__;
+        const moveDuration = (repDuration - hold) / 2;
+        const down = moveDuration;
+        const up = moveDuration;
 
         const line1 = document.getElementById("line1");
         const line2 = document.getElementById("line2");
@@ -348,7 +352,7 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
             );
             currentProgress = 0;
             line1.textContent = `Slow Squat  Rep: 1/${count}`;
-            line2.textContent = `Phase: DOWN  Tempo: down ${half.toFixed(1)}s / up ${half.toFixed(1)}s`;
+          line2.textContent = `Phase: DOWN  Tempo: down ${down.toFixed(1)}s / hold ${hold.toFixed(1)}s / up ${up.toFixed(1)}s`;
             line3.textContent = "伸長(100=伸,0=縮): 100.0";
             lastTimeLeft = formatTimeLeft(total * 1000);
             lastProgress = 100;
@@ -378,12 +382,15 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
 
           if (!done) {
             const within = elapsed / 1000 - completed * repDuration;
-            if (within < half) {
+            if (within < down) {
               phase = "DOWN";
-              progress = within / half;
+              progress = down > 0 ? within / down : 1;
+            } else if (within < down + hold) {
+              phase = "HOLD";
+              progress = 1;
             } else {
               phase = "UP";
-              progress = 1 - (within - half) / half;
+              progress = up > 0 ? 1 - (within - down - hold) / up : 0;
             }
           } else {
             phase = "UP";
@@ -400,7 +407,7 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
           const current = Math.min(completed + 1, count);
 
           line1.textContent = `Slow Squat  Rep: ${done ? count : current}/${count}`;
-          line2.textContent = `Phase: ${phase}  Tempo: down ${half.toFixed(1)}s / up ${half.toFixed(1)}s`;
+          line2.textContent = `Phase: ${phase}  Tempo: down ${down.toFixed(1)}s / hold ${hold.toFixed(1)}s / up ${up.toFixed(1)}s`;
           line3.textContent = `伸長(100=伸,0=縮): ${stretch.toFixed(1)}`;
           line4.textContent = `Time left: ${lastTimeLeft}`;
           line5.textContent = `Status: ${paused ? "PAUSED" : done ? "COMPLETE" : "RUNNING"}`;
@@ -524,7 +531,9 @@ struct FrameState<'a> {
   current: u32,
   total: u32,
   phase: &'a str,
-  half_secs: f64,
+  down_secs: f64,
+  hold_secs: f64,
+  up_secs: f64,
   remaining: Duration,
   paused: bool,
   offset: usize,
@@ -596,6 +605,7 @@ fn squat_web_html(duration: u64, count: u32) -> String {
   SQUAT_WEB_HTML
     .replace("__DURATION__", &duration.to_string())
     .replace("__COUNT__", &count.to_string())
+    .replace("__HOLD__", &format!("{:.1}", HOLD_SECS))
 }
 
 fn read_input(timeout: Duration) -> Result<InputAction> {
@@ -641,8 +651,8 @@ fn draw_frame(stdout: &mut io::Stdout, state: &FrameState) -> Result<()> {
     state.current, state.total
   ));
   output.push_str(&format!(
-    "Phase: {}  Tempo: down {:.1}s / up {:.1}s\r\n",
-    state.phase, state.half_secs, state.half_secs
+    "Phase: {}  Tempo: down {:.1}s / hold {:.1}s / up {:.1}s\r\n",
+    state.phase, state.down_secs, state.hold_secs, state.up_secs
   ));
   output.push_str(&format!("伸長(100=伸,0=縮): {:.1}\r\n", state.stretch));
   output.push_str(&format!(
@@ -714,7 +724,15 @@ fn run_squat(args: SquatArgs) -> Result<()> {
 
   let total_duration = Duration::from_secs(args.duration);
   let rep_duration = total_duration.as_secs_f64() / args.count as f64;
-  let half_duration = rep_duration / 2.0;
+  if rep_duration <= HOLD_SECS {
+    return Err(color_eyre::eyre::eyre!(
+      "duration/count must be greater than {:.1}s to allow a {:.1}s hold",
+      HOLD_SECS,
+      HOLD_SECS
+    ));
+  }
+  let down_duration = (rep_duration - HOLD_SECS) / 2.0;
+  let up_duration = down_duration;
 
   let mut paused = false;
   let mut paused_at: Option<Instant> = None;
@@ -770,10 +788,15 @@ fn run_squat(args: SquatArgs) -> Result<()> {
     completed_reps = completed;
     let within_rep = elapsed_secs - (rep_index as f64 * rep_duration);
 
-    let (phase, progress) = if within_rep < half_duration {
-      ("DOWN", within_rep / half_duration)
+    let (phase, progress) = if within_rep < down_duration {
+      ("DOWN", within_rep / down_duration)
+    } else if within_rep < down_duration + HOLD_SECS {
+      ("HOLD", 1.0)
     } else {
-      ("UP", 1.0 - (within_rep - half_duration) / half_duration)
+      (
+        "UP",
+        1.0 - (within_rep - down_duration - HOLD_SECS) / up_duration,
+      )
     };
 
     let clamped = progress.clamp(0.0, 1.0);
@@ -790,7 +813,9 @@ fn run_squat(args: SquatArgs) -> Result<()> {
       current: current_rep,
       total: args.count,
       phase,
-      half_secs: half_duration,
+      down_secs: down_duration,
+      hold_secs: HOLD_SECS,
+      up_secs: up_duration,
       remaining,
       paused,
       offset,
@@ -820,6 +845,14 @@ fn run_squat(args: SquatArgs) -> Result<()> {
 }
 
 fn run_squat_web(args: SquatWebArgs) -> Result<()> {
+  let rep_duration = args.duration as f64 / args.count as f64;
+  if rep_duration <= HOLD_SECS {
+    return Err(color_eyre::eyre::eyre!(
+      "duration/count must be greater than {:.1}s to allow a {:.1}s hold",
+      HOLD_SECS,
+      HOLD_SECS
+    ));
+  }
   let exit_flag = Arc::new(AtomicBool::new(false));
   let exit_flag_clone = exit_flag.clone();
   ctrlc::set_handler(move || {
