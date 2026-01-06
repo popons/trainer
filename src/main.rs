@@ -308,7 +308,7 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
           if (!started) {
             const elapsedCountdown = now - countdownStart;
             const remainingCountdown = Math.max(
-              0,
+              1,
               countdownSeconds - Math.floor(elapsedCountdown / 1000)
             );
             currentProgress = 0;
@@ -320,7 +320,7 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
             line5.textContent = `Status: COUNTDOWN ${remainingCountdown}`;
             drawCountdown(remainingCountdown);
 
-            if (elapsedCountdown >= (countdownSeconds + 1) * 1000) {
+            if (elapsedCountdown >= countdownSeconds * 1000) {
               started = true;
               animationStart = performance.now();
               paused = false;
@@ -408,7 +408,7 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
         window.addEventListener("resize", () => {
           resize();
           if (!started) {
-            drawCountdown(Math.max(0, countdownSeconds));
+            drawCountdown(Math.max(1, countdownSeconds));
           } else {
             drawFigure(currentProgress);
           }
