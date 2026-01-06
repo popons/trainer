@@ -1,0 +1,14 @@
+[package]
+name = "trainer"
+version = "0.1.0"
+authors = ["Yutaka Furukawa <frkw@fuse.co.jp>"]
+edition = "2024"
+
+[dependencies]
+clap = { version = "4.5.38", features = ["derive"] }
+color-eyre = "0.6.5"
+crossterm = "0.28.1"
+ctrlc = "3.4.5"
+tracing = "0.1.44"
+tracing-error = "0.2.1"
+tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
