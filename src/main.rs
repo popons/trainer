@@ -133,7 +133,10 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
         let pauseStarted = null;
         let pausedTotal = 0;
         let currentProgress = 0;
-        const start = performance.now();
+        const countdownSeconds = 5;
+        let countdownStart = performance.now();
+        let started = false;
+        let animationStart = null;
 
         function pad2(value) {
           return String(value).padStart(2, "0");
@@ -169,6 +172,23 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
           ctx.stroke();
         }
 
+        function drawCountdown(value) {
+          const w = viewWidth;
+          const h = viewHeight;
+          if (!w || !h) {
+            return;
+          }
+          ctx.clearRect(0, 0, w, h);
+          ctx.fillStyle = "#f6f2e8";
+          ctx.fillRect(0, 0, w, h);
+          ctx.fillStyle = "#1b1b1b";
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          const fontSize = Math.max(48, Math.floor(h * 0.5));
+          ctx.font = `700 ${fontSize}px "Hiragino Mincho ProN", "Yu Mincho", "YuMincho", serif`;
+          ctx.fillText(String(value), w / 2, h / 2);
+        }
+
         function drawFigure(progress) {
           const w = viewWidth;
           const h = viewHeight;
@@ -181,29 +201,55 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
           ctx.lineCap = "round";
           ctx.lineJoin = "round";
 
-          const ground = h * 0.85;
-          const scale = Math.min(w, h) / 320;
+          const ground = h * 0.86;
+          const scale = Math.min(w, h) / 340;
           const headR = 12 * scale;
-          const torso = 70 * scale;
-          const thigh = 60 * scale;
-          const shin = 60 * scale;
-          const shoulder = 32 * scale;
-          const hip = 28 * scale;
+          const torso = 78 * scale;
+          const thigh = 80 * scale;
+          const shin = 80 * scale;
+          const shoulder = 34 * scale;
+          const hip = 30 * scale;
 
-          const hipY = lerp(
-            ground - (thigh + shin + 24 * scale),
-            ground - (thigh + shin - 10 * scale),
-            progress
-          );
-          const hipX = w * 0.5 + progress * 10 * scale;
-          const shoulderX = hipX - progress * 14 * scale;
-          const shoulderY = hipY - torso + progress * 8 * scale;
-          const kneeX = hipX + progress * 18 * scale;
-          const kneeY = hipY + thigh * (0.6 + 0.2 * progress);
+          const depth = Math.max(0, Math.min(1, progress));
+          const hipTop = ground - (thigh + shin);
+          const hipBottom = ground - shin + 6 * scale;
+          const hipY = lerp(hipTop, hipBottom, depth);
+          const hipX = w * 0.5;
+          const shoulderX = hipX - depth * 26 * scale;
+          const shoulderY = hipY - torso + depth * 12 * scale;
+
           const footY = ground;
-          const footSpread = 26 * scale;
-          const ankleLX = hipX - footSpread;
-          const ankleRX = hipX + footSpread;
+          const footSpread = 36 * scale;
+          const ankleLX = w * 0.5 - footSpread;
+          const ankleRX = w * 0.5 + footSpread;
+          const hipLX = hipX - hip * 0.4;
+          const hipRX = hipX + hip * 0.4;
+
+          function kneeFromHip(hipX, hipY, ankleX, ankleY, outwardLeft) {
+            const dx = ankleX - hipX;
+            const dy = ankleY - hipY;
+            const dist = Math.max(0.001, Math.hypot(dx, dy));
+            const maxReach = thigh + shin - 0.001;
+            const minReach = Math.abs(thigh - shin) + 0.001;
+            const d = Math.max(minReach, Math.min(maxReach, dist));
+            const a = (thigh * thigh - shin * shin + d * d) / (2 * d);
+            const h = Math.sqrt(Math.max(thigh * thigh - a * a, 0));
+            const ux = dx / d;
+            const uy = dy / d;
+            const px = hipX + a * ux;
+            const py = hipY + a * uy;
+            const perpX = -uy;
+            const perpY = ux;
+            const k1 = { x: px + h * perpX, y: py + h * perpY };
+            const k2 = { x: px - h * perpX, y: py - h * perpY };
+            if (outwardLeft) {
+              return k1.x < k2.x ? k1 : k2;
+            }
+            return k1.x > k2.x ? k1 : k2;
+          }
+
+          const kneeL = kneeFromHip(hipLX, hipY, ankleLX, footY, true);
+          const kneeR = kneeFromHip(hipRX, hipY, ankleRX, footY, false);
 
           line(0, ground, w, ground);
           line(shoulderX, shoulderY, hipX, hipY);
@@ -212,17 +258,19 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
           ctx.arc(shoulderX, shoulderY - headR * 1.6, headR, 0, Math.PI * 2);
           ctx.stroke();
 
-          line(shoulderX, shoulderY + 5 * scale, shoulderX - shoulder * 0.5, shoulderY + 24 * scale);
-          line(shoulderX, shoulderY + 5 * scale, shoulderX + shoulder * 0.5, shoulderY + 24 * scale);
+          const armDrop = 26 * scale + depth * 10 * scale;
+          line(shoulderX, shoulderY + 6 * scale, shoulderX - shoulder * 0.5, shoulderY + armDrop);
+          line(shoulderX, shoulderY + 6 * scale, shoulderX + shoulder * 0.5, shoulderY + armDrop);
 
           line(hipX - hip * 0.5, hipY, hipX + hip * 0.5, hipY);
-          line(hipX - hip * 0.4, hipY, kneeX - hip * 0.4, kneeY);
-          line(kneeX - hip * 0.4, kneeY, ankleLX, footY);
-          line(hipX + hip * 0.4, hipY, kneeX + hip * 0.4, kneeY);
-          line(kneeX + hip * 0.4, kneeY, ankleRX, footY);
+          line(hipLX, hipY, kneeL.x, kneeL.y);
+          line(kneeL.x, kneeL.y, ankleLX, footY);
+          line(hipRX, hipY, kneeR.x, kneeR.y);
+          line(kneeR.x, kneeR.y, ankleRX, footY);
 
-          line(ankleLX - 12 * scale, footY, ankleLX + 12 * scale, footY);
-          line(ankleRX - 12 * scale, footY, ankleRX + 12 * scale, footY);
+          const foot = 14 * scale;
+          line(ankleLX - foot, footY, ankleLX + foot, footY);
+          line(ankleRX - foot, footY, ankleRX + foot, footY);
         }
 
         function update() {
@@ -230,8 +278,34 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
             return;
           }
           const now = performance.now();
+          if (!started) {
+            const elapsedCountdown = now - countdownStart;
+            const remainingCountdown = Math.max(
+              0,
+              countdownSeconds - Math.floor(elapsedCountdown / 1000)
+            );
+            currentProgress = 0;
+            line1.textContent = `Slow Squat  Rep: 1/${count}`;
+            line2.textContent = `Phase: DOWN  Tempo: down ${half.toFixed(1)}s / up ${half.toFixed(1)}s`;
+            line3.textContent = "伸長(100=伸,0=縮): 100.0";
+            line4.textContent = `Time left: ${formatTimeLeft(total * 1000)}`;
+            line5.textContent = `Status: COUNTDOWN ${remainingCountdown}`;
+            drawCountdown(remainingCountdown);
+
+            if (elapsedCountdown >= (countdownSeconds + 1) * 1000) {
+              started = true;
+              animationStart = performance.now();
+              paused = false;
+              pauseStarted = null;
+              pausedTotal = 0;
+            } else {
+              requestAnimationFrame(update);
+              return;
+            }
+          }
+
           const effectiveNow = paused && pauseStarted ? pauseStarted : now;
-          const elapsed = Math.max(0, effectiveNow - start - pausedTotal);
+          const elapsed = Math.max(0, effectiveNow - animationStart - pausedTotal);
 
           const done = elapsed >= total * 1000;
           let phase = "DOWN";
@@ -273,7 +347,7 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
         }
 
         function togglePause() {
-          if (stopped) {
+          if (stopped || !started) {
             return;
           }
           if (paused) {
@@ -304,7 +378,11 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
 
         window.addEventListener("resize", () => {
           resize();
-          drawFigure(currentProgress);
+          if (!started) {
+            drawCountdown(Math.max(0, countdownSeconds));
+          } else {
+            drawFigure(currentProgress);
+          }
         });
 
         window.addEventListener("keydown", (event) => {
