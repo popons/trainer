@@ -26,10 +26,18 @@ use tracing_subscriber::{EnvFilter, prelude::*};
 
 /* global const  *****************************************************************************************/
 
-const TICK_MS: u64 = 100;
+const TICK_MS: u64 = 20;
 const MAX_DROP_LINES: usize = 4;
+const POSE_LINES: usize = 5;
+const POSE_COUNT: usize = 5;
 const FLOOR: &str = "==============================";
-const FIGURE: [&str; 4] = ["   O", "  /|\\", "   |", "  / \\"];
+const POSES: [[&str; POSE_LINES]; POSE_COUNT] = [
+  ["   O   ", "  /|\\  ", "   |   ", "  / \\  ", " /   \\ "],
+  ["   O   ", "  /|\\  ", "   |   ", "  / \\  ", " /_ _\\ "],
+  ["   O   ", "  /|\\  ", "   |   ", "  /_\\  ", " /   \\ "],
+  ["   O   ", "  /|\\  ", "  _|_  ", "  /_\\  ", " /   \\ "],
+  ["   O   ", "  /|\\  ", "  _|_  ", "  /_\\  ", " _/ \\_ "],
+];
 
 /* trait  ************************************************************************************************/
 
@@ -74,6 +82,7 @@ struct FrameState<'a> {
   remaining: Duration,
   paused: bool,
   offset: usize,
+  pose_idx: usize,
 }
 
 struct TerminalGuard;
@@ -144,13 +153,14 @@ fn read_input(timeout: Duration) -> Result<InputAction> {
   }
 }
 
-fn build_figure_lines(offset: usize) -> Vec<String> {
+fn build_figure_lines(offset: usize, pose_idx: usize) -> Vec<String> {
   let mut lines = Vec::new();
   lines.extend(std::iter::repeat(String::new()).take(offset));
-  lines.extend(FIGURE.iter().map(|line| (*line).to_string()));
+  let pose = &POSES[pose_idx.min(POSE_COUNT - 1)];
+  lines.extend(pose.iter().map(|line| (*line).to_string()));
 
-  let total_body = MAX_DROP_LINES + FIGURE.len();
-  let current_body = offset + FIGURE.len();
+  let total_body = MAX_DROP_LINES + POSE_LINES;
+  let current_body = offset + POSE_LINES;
   if total_body > current_body {
     lines.extend(std::iter::repeat(String::new()).take(total_body - current_body));
   }
@@ -176,7 +186,7 @@ fn draw_frame(stdout: &mut io::Stdout, state: &FrameState) -> Result<()> {
   output.push_str(&format!("Status: {}\r\n", status));
   output.push_str("Controls: SPACE=Pause/Resume  ESC=Quit  Ctrl+C=Quit\r\n\r\n");
 
-  for line in build_figure_lines(state.offset) {
+  for line in build_figure_lines(state.offset, state.pose_idx) {
     output.push_str(&line);
     output.push_str("\r\n");
   }
@@ -301,6 +311,7 @@ fn run_squat(args: SquatArgs) -> Result<()> {
     let offset = (clamped * MAX_DROP_LINES as f64)
       .round()
       .min(MAX_DROP_LINES as f64) as usize;
+    let pose_idx = (clamped * (POSE_COUNT.saturating_sub(1)) as f64).round() as usize;
 
     let remaining = total_duration.saturating_sub(elapsed);
     let current_rep = (completed.saturating_add(1)).min(args.count);
@@ -312,6 +323,7 @@ fn run_squat(args: SquatArgs) -> Result<()> {
       remaining,
       paused,
       offset,
+      pose_idx,
     };
 
     draw_frame(&mut stdout, &state)?;
