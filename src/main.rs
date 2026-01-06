@@ -17,6 +17,7 @@ use std::{
   },
   time::{Duration, Instant},
 };
+use tiny_http::{Header, Response, Server};
 use tracing_error::ErrorLayer;
 use tracing_subscriber::{EnvFilter, prelude::*};
 
@@ -44,6 +45,290 @@ const POSES: [[&str; POSE_LINES]; POSE_COUNT] = [
   ["   O   ", " _/|\\_ ", " __|__ ", " _/_\\_ ", " _/ \\_ "],
   ["   O   ", " _/|\\_ ", " __|__ ", " _/_\\_ ", "__/ \\__"],
 ];
+const SQUAT_WEB_HTML: &str = r##"<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Slow Squat</title>
+    <style>
+      :root {
+        --bg: #f6f2e8;
+        --ink: #1b1b1b;
+        --accent: #b33a2b;
+        --grid: #e5dccd;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        font-family: "Hiragino Mincho ProN", "Yu Mincho", "YuMincho", serif;
+        background: var(--bg);
+        color: var(--ink);
+      }
+      #app {
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+      }
+      #info {
+        padding: 20px 24px 10px;
+        line-height: 1.5;
+        background: linear-gradient(180deg, #fff, #f6f2e8);
+        border-bottom: 1px solid var(--grid);
+      }
+      #line1 {
+        font-size: 20px;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+      }
+      #canvas-wrap {
+        flex: 1;
+        display: flex;
+        min-height: 280px;
+      }
+      canvas {
+        width: 100%;
+        height: 100%;
+        display: block;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app">
+      <div id="info">
+        <div id="line1">Slow Squat  Rep: 1/__COUNT__</div>
+        <div id="line2">Phase: DOWN  Tempo: down 0.0s / up 0.0s</div>
+        <div id="line3">伸長(100=伸,0=縮): 100.0</div>
+        <div id="line4">Time left: 00:00.000</div>
+        <div id="line5">Status: RUNNING</div>
+        <div id="line6">Controls: SPACE=Pause/Resume  ESC=Quit  Ctrl+C=Quit</div>
+      </div>
+      <div id="canvas-wrap">
+        <canvas id="squat"></canvas>
+      </div>
+    </div>
+    <script>
+      (() => {
+        const config = { duration: __DURATION__, count: __COUNT__ };
+        const total = config.duration;
+        const count = config.count;
+        const repDuration = total / count;
+        const half = repDuration / 2;
+
+        const line1 = document.getElementById("line1");
+        const line2 = document.getElementById("line2");
+        const line3 = document.getElementById("line3");
+        const line4 = document.getElementById("line4");
+        const line5 = document.getElementById("line5");
+
+        const canvas = document.getElementById("squat");
+        const ctx = canvas.getContext("2d");
+        let viewWidth = 0;
+        let viewHeight = 0;
+
+        let paused = false;
+        let stopped = false;
+        let pauseStarted = null;
+        let pausedTotal = 0;
+        let currentProgress = 0;
+        const start = performance.now();
+
+        function pad2(value) {
+          return String(value).padStart(2, "0");
+        }
+
+        function formatTimeLeft(ms) {
+          const clamped = Math.max(0, ms);
+          const totalSec = Math.floor(clamped / 1000);
+          const minutes = Math.floor(totalSec / 60);
+          const seconds = totalSec % 60;
+          const millis = Math.floor(clamped % 1000);
+          return `${pad2(minutes)}:${pad2(seconds)}.${String(millis).padStart(3, "0")}`;
+        }
+
+        function resize() {
+          const rect = canvas.getBoundingClientRect();
+          viewWidth = rect.width;
+          viewHeight = rect.height;
+          const dpr = window.devicePixelRatio || 1;
+          canvas.width = rect.width * dpr;
+          canvas.height = rect.height * dpr;
+          ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        }
+
+        function lerp(a, b, t) {
+          return a + (b - a) * t;
+        }
+
+        function line(ax, ay, bx, by) {
+          ctx.beginPath();
+          ctx.moveTo(ax, ay);
+          ctx.lineTo(bx, by);
+          ctx.stroke();
+        }
+
+        function drawFigure(progress) {
+          const w = viewWidth;
+          const h = viewHeight;
+          if (!w || !h) {
+            return;
+          }
+          ctx.clearRect(0, 0, w, h);
+          ctx.strokeStyle = "#1b1b1b";
+          ctx.lineWidth = 2;
+          ctx.lineCap = "round";
+          ctx.lineJoin = "round";
+
+          const ground = h * 0.85;
+          const scale = Math.min(w, h) / 320;
+          const headR = 12 * scale;
+          const torso = 70 * scale;
+          const thigh = 60 * scale;
+          const shin = 60 * scale;
+          const shoulder = 32 * scale;
+          const hip = 28 * scale;
+
+          const hipY = lerp(
+            ground - (thigh + shin + 24 * scale),
+            ground - (thigh + shin - 10 * scale),
+            progress
+          );
+          const hipX = w * 0.5 + progress * 10 * scale;
+          const shoulderX = hipX - progress * 14 * scale;
+          const shoulderY = hipY - torso + progress * 8 * scale;
+          const kneeX = hipX + progress * 18 * scale;
+          const kneeY = hipY + thigh * (0.6 + 0.2 * progress);
+          const footY = ground;
+          const footSpread = 26 * scale;
+          const ankleLX = hipX - footSpread;
+          const ankleRX = hipX + footSpread;
+
+          line(0, ground, w, ground);
+          line(shoulderX, shoulderY, hipX, hipY);
+
+          ctx.beginPath();
+          ctx.arc(shoulderX, shoulderY - headR * 1.6, headR, 0, Math.PI * 2);
+          ctx.stroke();
+
+          line(shoulderX, shoulderY + 5 * scale, shoulderX - shoulder * 0.5, shoulderY + 24 * scale);
+          line(shoulderX, shoulderY + 5 * scale, shoulderX + shoulder * 0.5, shoulderY + 24 * scale);
+
+          line(hipX - hip * 0.5, hipY, hipX + hip * 0.5, hipY);
+          line(hipX - hip * 0.4, hipY, kneeX - hip * 0.4, kneeY);
+          line(kneeX - hip * 0.4, kneeY, ankleLX, footY);
+          line(hipX + hip * 0.4, hipY, kneeX + hip * 0.4, kneeY);
+          line(kneeX + hip * 0.4, kneeY, ankleRX, footY);
+
+          line(ankleLX - 12 * scale, footY, ankleLX + 12 * scale, footY);
+          line(ankleRX - 12 * scale, footY, ankleRX + 12 * scale, footY);
+        }
+
+        function update() {
+          if (stopped) {
+            return;
+          }
+          const now = performance.now();
+          const effectiveNow = paused && pauseStarted ? pauseStarted : now;
+          const elapsed = Math.max(0, effectiveNow - start - pausedTotal);
+
+          const done = elapsed >= total * 1000;
+          let phase = "DOWN";
+          let progress = 0;
+          let completed = Math.min(Math.floor(elapsed / (repDuration * 1000)), count);
+
+          if (!done) {
+            const within = elapsed / 1000 - completed * repDuration;
+            if (within < half) {
+              phase = "DOWN";
+              progress = within / half;
+            } else {
+              phase = "UP";
+              progress = 1 - (within - half) / half;
+            }
+          } else {
+            phase = "UP";
+            progress = 0;
+            completed = count;
+          }
+
+          const clamped = Math.max(0, Math.min(1, progress));
+          currentProgress = clamped;
+          const stretch = (1 - clamped) * 100;
+          const remaining = Math.max(0, total * 1000 - elapsed);
+          const current = Math.min(completed + 1, count);
+
+          line1.textContent = `Slow Squat  Rep: ${done ? count : current}/${count}`;
+          line2.textContent = `Phase: ${phase}  Tempo: down ${half.toFixed(1)}s / up ${half.toFixed(1)}s`;
+          line3.textContent = `伸長(100=伸,0=縮): ${stretch.toFixed(1)}`;
+          line4.textContent = `Time left: ${formatTimeLeft(remaining)}`;
+          line5.textContent = `Status: ${paused ? "PAUSED" : done ? "COMPLETE" : "RUNNING"}`;
+
+          drawFigure(clamped);
+
+          if (!done && !stopped) {
+            requestAnimationFrame(update);
+          }
+        }
+
+        function togglePause() {
+          if (stopped) {
+            return;
+          }
+          if (paused) {
+            if (pauseStarted !== null) {
+              pausedTotal += performance.now() - pauseStarted;
+            }
+            paused = false;
+            pauseStarted = null;
+            requestAnimationFrame(update);
+          } else {
+            paused = true;
+            pauseStarted = performance.now();
+          }
+        }
+
+        function stop() {
+          if (stopped) {
+            return;
+          }
+          stopped = true;
+          if (pauseStarted !== null) {
+            pausedTotal += performance.now() - pauseStarted;
+            pauseStarted = null;
+          }
+          line5.textContent = "Status: STOPPED";
+          drawFigure(currentProgress);
+        }
+
+        window.addEventListener("resize", () => {
+          resize();
+          drawFigure(currentProgress);
+        });
+
+        window.addEventListener("keydown", (event) => {
+          if (event.code === "Space") {
+            event.preventDefault();
+            togglePause();
+            return;
+          }
+          if (event.code === "Escape") {
+            stop();
+            return;
+          }
+          if ((event.ctrlKey || event.metaKey) && (event.key === "c" || event.key === "C")) {
+            stop();
+          }
+        });
+
+        resize();
+        requestAnimationFrame(update);
+      })();
+    </script>
+  </body>
+</html>
+"##;
 
 /* trait  ************************************************************************************************/
 
@@ -52,6 +337,7 @@ const POSES: [[&str; POSE_LINES]; POSE_COUNT] = [
 #[derive(Subcommand, Debug)]
 enum Commands {
   Squat(SquatArgs),
+  SquatWeb(SquatWebArgs),
 }
 
 #[derive(Debug)]
@@ -78,6 +364,16 @@ struct SquatArgs {
   count: u32,
   #[arg(long, default_value_t = 3, value_parser = clap::value_parser!(u64).range(0..))]
   countdown: u64,
+}
+
+#[derive(Args, Debug)]
+struct SquatWebArgs {
+  #[arg(long, default_value_t = 300, value_parser = clap::value_parser!(u64).range(1..))]
+  duration: u64,
+  #[arg(long, default_value_t = 20, value_parser = clap::value_parser!(u32).range(1..))]
+  count: u32,
+  #[arg(long, default_value = "127.0.0.1:12002")]
+  addr: String,
 }
 
 struct FrameState<'a> {
@@ -150,6 +446,12 @@ fn terminal_rows() -> usize {
   terminal::size()
     .map(|(_, rows)| rows as usize)
     .unwrap_or(DEFAULT_ROWS)
+}
+
+fn squat_web_html(duration: u64, count: u32) -> String {
+  SQUAT_WEB_HTML
+    .replace("__DURATION__", &duration.to_string())
+    .replace("__COUNT__", &count.to_string())
 }
 
 fn read_input(timeout: Duration) -> Result<InputAction> {
@@ -373,6 +675,35 @@ fn run_squat(args: SquatArgs) -> Result<()> {
   Ok(())
 }
 
+fn run_squat_web(args: SquatWebArgs) -> Result<()> {
+  let exit_flag = Arc::new(AtomicBool::new(false));
+  let exit_flag_clone = exit_flag.clone();
+  ctrlc::set_handler(move || {
+    exit_flag_clone.store(true, Ordering::SeqCst);
+  })?;
+
+  let server = Server::http(&args.addr).map_err(|err| color_eyre::eyre::eyre!(err))?;
+  let html = squat_web_html(args.duration, args.count);
+  let content_type = Header::from_bytes("Content-Type", "text/html; charset=utf-8")
+    .map_err(|_| color_eyre::eyre::eyre!("invalid content-type header"))?;
+
+  println!("Serving squat animation on http://{}", args.addr);
+  println!("Press Ctrl+C to stop.");
+
+  while !exit_flag.load(Ordering::SeqCst) {
+    match server.recv_timeout(Duration::from_millis(200)) {
+      Ok(Some(request)) => {
+        let response = Response::from_string(html.clone()).with_header(content_type.clone());
+        let _ = request.respond(response);
+      }
+      Ok(None) => {}
+      Err(err) => return Err(err.into()),
+    }
+  }
+
+  Ok(())
+}
+
 fn main() -> Result<()> {
   color_eyre::install()?;
   init_tracing()?;
@@ -381,6 +712,7 @@ fn main() -> Result<()> {
 
   match cli.command {
     Commands::Squat(args) => run_squat(args),
+    Commands::SquatWeb(args) => run_squat_web(args),
   }
 }
 
