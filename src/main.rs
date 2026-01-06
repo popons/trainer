@@ -133,6 +133,7 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
         let pauseStarted = null;
         let pausedTotal = 0;
         let currentProgress = 0;
+        let lastTimeLeft = "00:00.000";
         const countdownSeconds = 5;
         let countdownStart = performance.now();
         let started = false;
@@ -172,6 +173,30 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
           ctx.stroke();
         }
 
+        function drawTimeOverlay(text) {
+          const w = viewWidth;
+          const h = viewHeight;
+          if (!w || !h) {
+            return;
+          }
+          const fontSize = Math.max(28, Math.floor(h * 0.08));
+          const padding = Math.floor(fontSize * 0.35);
+          ctx.save();
+          ctx.font = `700 ${fontSize}px "Hiragino Mincho ProN", "Yu Mincho", "YuMincho", serif`;
+          ctx.textAlign = "right";
+          ctx.textBaseline = "top";
+          const metrics = ctx.measureText(text);
+          const boxW = metrics.width + padding * 2;
+          const boxH = fontSize + padding;
+          const x = w - padding;
+          const y = padding;
+          ctx.fillStyle = "rgba(246, 242, 232, 0.9)";
+          ctx.fillRect(w - boxW - padding, y - padding * 0.4, boxW, boxH);
+          ctx.fillStyle = "#1b1b1b";
+          ctx.fillText(text, x, y);
+          ctx.restore();
+        }
+
         function drawCountdown(value) {
           const w = viewWidth;
           const h = viewHeight;
@@ -187,6 +212,7 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
           const fontSize = Math.max(48, Math.floor(h * 0.5));
           ctx.font = `700 ${fontSize}px "Hiragino Mincho ProN", "Yu Mincho", "YuMincho", serif`;
           ctx.fillText(String(value), w / 2, h / 2);
+          drawTimeOverlay(lastTimeLeft);
         }
 
         function drawFigure(progress) {
@@ -271,6 +297,7 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
           const foot = 14 * scale;
           line(ankleLX - foot, footY, ankleLX + foot, footY);
           line(ankleRX - foot, footY, ankleRX + foot, footY);
+          drawTimeOverlay(lastTimeLeft);
         }
 
         function update() {
@@ -288,7 +315,8 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
             line1.textContent = `Slow Squat  Rep: 1/${count}`;
             line2.textContent = `Phase: DOWN  Tempo: down ${half.toFixed(1)}s / up ${half.toFixed(1)}s`;
             line3.textContent = "伸長(100=伸,0=縮): 100.0";
-            line4.textContent = `Time left: ${formatTimeLeft(total * 1000)}`;
+            lastTimeLeft = formatTimeLeft(total * 1000);
+            line4.textContent = `Time left: ${lastTimeLeft}`;
             line5.textContent = `Status: COUNTDOWN ${remainingCountdown}`;
             drawCountdown(remainingCountdown);
 
@@ -331,12 +359,13 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
           currentProgress = clamped;
           const stretch = (1 - clamped) * 100;
           const remaining = Math.max(0, total * 1000 - elapsed);
+          lastTimeLeft = formatTimeLeft(remaining);
           const current = Math.min(completed + 1, count);
 
           line1.textContent = `Slow Squat  Rep: ${done ? count : current}/${count}`;
           line2.textContent = `Phase: ${phase}  Tempo: down ${half.toFixed(1)}s / up ${half.toFixed(1)}s`;
           line3.textContent = `伸長(100=伸,0=縮): ${stretch.toFixed(1)}`;
-          line4.textContent = `Time left: ${formatTimeLeft(remaining)}`;
+          line4.textContent = `Time left: ${lastTimeLeft}`;
           line5.textContent = `Status: ${paused ? "PAUSED" : done ? "COMPLETE" : "RUNNING"}`;
 
           drawFigure(clamped);
