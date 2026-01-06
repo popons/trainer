@@ -1,0 +1,7 @@
+target/
+*.txt
+?.md
+*log/
+*.swp
+.project-name
+
