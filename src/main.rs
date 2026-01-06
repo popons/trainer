@@ -133,6 +133,7 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
         let pauseStarted = null;
         let pausedTotal = 0;
         let currentProgress = 0;
+        let lastProgress = 0;
         let lastTimeLeft = "00:00.000";
         const countdownSeconds = 5;
         let countdownStart = performance.now();
@@ -197,6 +198,38 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
           ctx.restore();
         }
 
+        function drawProgressOverlay(value) {
+          const w = viewWidth;
+          const h = viewHeight;
+          if (!w || !h) {
+            return;
+          }
+          const clamped = Math.max(0, Math.min(100, value));
+          const barWidth = Math.max(18, Math.floor(w * 0.03));
+          const barHeight = Math.max(160, Math.floor(h * 0.6));
+          const barX = Math.max(16, Math.floor(w * 0.04));
+          const barY = Math.floor((h - barHeight) * 0.5);
+          const fillHeight = Math.floor((barHeight * clamped) / 100);
+
+          ctx.save();
+          ctx.strokeStyle = "#1b1b1b";
+          ctx.lineWidth = 3;
+          ctx.fillStyle = "rgba(246, 242, 232, 0.9)";
+          ctx.fillRect(barX - 6, barY - 6, barWidth + 12, barHeight + 12);
+          ctx.strokeRect(barX, barY, barWidth, barHeight);
+
+          ctx.fillStyle = "#b33a2b";
+          ctx.fillRect(barX, barY + barHeight - fillHeight, barWidth, fillHeight);
+
+          const fontSize = Math.max(32, Math.floor(h * 0.12));
+          ctx.font = `700 ${fontSize}px "Hiragino Mincho ProN", "Yu Mincho", "YuMincho", serif`;
+          ctx.fillStyle = "#1b1b1b";
+          ctx.textAlign = "left";
+          ctx.textBaseline = "top";
+          ctx.fillText(clamped.toFixed(1), barX, barY - fontSize - 10);
+          ctx.restore();
+        }
+
         function drawCountdown(value) {
           const w = viewWidth;
           const h = viewHeight;
@@ -213,6 +246,7 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
           ctx.font = `700 ${fontSize}px "Hiragino Mincho ProN", "Yu Mincho", "YuMincho", serif`;
           ctx.fillText(String(value), w / 2, h / 2);
           drawTimeOverlay(lastTimeLeft);
+          drawProgressOverlay(lastProgress);
         }
 
         function drawFigure(progress) {
@@ -298,6 +332,7 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
           line(ankleLX - foot, footY, ankleLX + foot, footY);
           line(ankleRX - foot, footY, ankleRX + foot, footY);
           drawTimeOverlay(lastTimeLeft);
+          drawProgressOverlay(lastProgress);
         }
 
         function update() {
@@ -316,6 +351,7 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
             line2.textContent = `Phase: DOWN  Tempo: down ${half.toFixed(1)}s / up ${half.toFixed(1)}s`;
             line3.textContent = "伸長(100=伸,0=縮): 100.0";
             lastTimeLeft = formatTimeLeft(total * 1000);
+            lastProgress = 100;
             line4.textContent = `Time left: ${lastTimeLeft}`;
             line5.textContent = `Status: COUNTDOWN ${remainingCountdown}`;
             drawCountdown(remainingCountdown);
@@ -358,6 +394,7 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
           const clamped = Math.max(0, Math.min(1, progress));
           currentProgress = clamped;
           const stretch = (1 - clamped) * 100;
+          lastProgress = stretch;
           const remaining = Math.max(0, total * 1000 - elapsed);
           lastTimeLeft = formatTimeLeft(remaining);
           const current = Math.min(completed + 1, count);
