@@ -101,7 +101,6 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
       <div id="info">
         <div id="line1">Slow Squat  Rep: 1/__COUNT__</div>
         <div id="line2">Phase: DOWN  Tempo: down 0.0s / hold 0.0s / up 0.0s</div>
-        <div id="line3">伸長(100=伸,0=縮): 100.0</div>
         <div id="line4">Time left: 00:00.000</div>
         <div id="line5">Status: RUNNING</div>
         <div id="line6">Controls: SPACE=Pause/Resume  ESC=Quit  Ctrl+C=Quit</div>
@@ -123,7 +122,6 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
 
         const line1 = document.getElementById("line1");
         const line2 = document.getElementById("line2");
-        const line3 = document.getElementById("line3");
         const line4 = document.getElementById("line4");
         const line5 = document.getElementById("line5");
 
@@ -137,7 +135,8 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
         let pauseStarted = null;
         let pausedTotal = 0;
         let currentProgress = 0;
-        let lastProgress = 0;
+        let lastMoveProgress = 0;
+        let lastHoldProgress = 0;
         let lastTimeLeft = "00:00.000";
         const countdownSeconds = 5;
         let countdownStart = performance.now();
@@ -202,35 +201,44 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
           ctx.restore();
         }
 
-        function drawProgressOverlay(value) {
+        function drawProgressOverlay(moveValue, holdValue) {
           const w = viewWidth;
           const h = viewHeight;
           if (!w || !h) {
             return;
           }
-          const clamped = Math.max(0, Math.min(100, value));
+          const clampedMove = Math.max(0, Math.min(100, moveValue));
+          const clampedHold = Math.max(0, Math.min(100, holdValue));
           const barWidth = Math.max(18, Math.floor(w * 0.03));
           const barHeight = Math.max(160, Math.floor(h * 0.6));
           const barX = Math.max(16, Math.floor(w * 0.04));
           const barY = Math.floor((h - barHeight) * 0.5);
-          const fillHeight = Math.floor((barHeight * clamped) / 100);
+          const gap = Math.max(24, Math.floor(barWidth * 1.8));
+          const holdBarX = barX + barWidth + gap;
+          const moveFillHeight = Math.floor((barHeight * clampedMove) / 100);
+          const holdFillHeight = Math.floor((barHeight * clampedHold) / 100);
 
           ctx.save();
           ctx.strokeStyle = "#1b1b1b";
           ctx.lineWidth = 3;
           ctx.fillStyle = "rgba(246, 242, 232, 0.9)";
           ctx.fillRect(barX - 6, barY - 6, barWidth + 12, barHeight + 12);
+          ctx.fillRect(holdBarX - 6, barY - 6, barWidth + 12, barHeight + 12);
           ctx.strokeRect(barX, barY, barWidth, barHeight);
+          ctx.strokeRect(holdBarX, barY, barWidth, barHeight);
 
           ctx.fillStyle = "#b33a2b";
-          ctx.fillRect(barX, barY + barHeight - fillHeight, barWidth, fillHeight);
+          ctx.fillRect(barX, barY + barHeight - moveFillHeight, barWidth, moveFillHeight);
+          ctx.fillStyle = "#1b1b1b";
+          ctx.fillRect(holdBarX, barY + barHeight - holdFillHeight, barWidth, holdFillHeight);
 
-          const fontSize = Math.max(32, Math.floor(h * 0.12));
+          const fontSize = Math.max(16, Math.floor(h * 0.06));
           ctx.font = `700 ${fontSize}px "Hiragino Mincho ProN", "Yu Mincho", "YuMincho", serif`;
           ctx.fillStyle = "#1b1b1b";
           ctx.textAlign = "left";
           ctx.textBaseline = "top";
-          ctx.fillText(clamped.toFixed(1), barX, barY - fontSize - 10);
+          ctx.fillText(clampedMove.toFixed(1), barX, barY - fontSize - 10);
+          ctx.fillText(clampedHold.toFixed(1), holdBarX, barY - fontSize - 10);
           ctx.restore();
         }
 
@@ -250,7 +258,7 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
           ctx.font = `700 ${fontSize}px "Hiragino Mincho ProN", "Yu Mincho", "YuMincho", serif`;
           ctx.fillText(String(value), w / 2, h / 2);
           drawTimeOverlay(lastTimeLeft);
-          drawProgressOverlay(lastProgress);
+          drawProgressOverlay(lastMoveProgress, lastHoldProgress);
         }
 
         function drawFigure(progress) {
@@ -336,7 +344,7 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
           line(ankleLX - foot, footY, ankleLX + foot, footY);
           line(ankleRX - foot, footY, ankleRX + foot, footY);
           drawTimeOverlay(lastTimeLeft);
-          drawProgressOverlay(lastProgress);
+          drawProgressOverlay(lastMoveProgress, lastHoldProgress);
         }
 
         function update() {
@@ -351,11 +359,13 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
               countdownSeconds - Math.floor(elapsedCountdown / 1000)
             );
             currentProgress = 0;
+            lastMoveProgress = 0;
+            lastHoldProgress = 0;
             line1.textContent = `Slow Squat  Rep: 1/${count}`;
-          line2.textContent = `Phase: DOWN  Tempo: down ${down.toFixed(1)}s / hold ${hold.toFixed(1)}s / up ${up.toFixed(1)}s`;
-            line3.textContent = "伸長(100=伸,0=縮): 100.0";
+            line2.textContent = `Phase: DOWN  Tempo: down ${down.toFixed(
+              1
+            )}s / hold ${hold.toFixed(1)}s / up ${up.toFixed(1)}s`;
             lastTimeLeft = formatTimeLeft(total * 1000);
-            lastProgress = 100;
             line4.textContent = `Time left: ${lastTimeLeft}`;
             line5.textContent = `Status: COUNTDOWN ${remainingCountdown}`;
             drawCountdown(remainingCountdown);
@@ -377,38 +387,49 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
 
           const done = elapsed >= total * 1000;
           let phase = "DOWN";
-          let progress = 0;
+          let depth = 0;
+          let moveProgress = lastMoveProgress;
+          let holdProgress = lastHoldProgress;
           let completed = Math.min(Math.floor(elapsed / (repDuration * 1000)), count);
 
           if (!done) {
             const within = elapsed / 1000 - completed * repDuration;
             if (within < down) {
               phase = "DOWN";
-              progress = down > 0 ? within / down : 1;
+              const t = down > 0 ? within / down : 1;
+              depth = t;
+              moveProgress = t * 100;
             } else if (within < down + hold) {
               phase = "HOLD";
-              progress = 1;
+              depth = 1;
+              const t = hold > 0 ? (within - down) / hold : 1;
+              holdProgress = t * 100;
+              moveProgress = 100;
             } else {
               phase = "UP";
-              progress = up > 0 ? 1 - (within - down - hold) / up : 0;
+              const t = up > 0 ? (within - down - hold) / up : 1;
+              depth = 1 - t;
+              moveProgress = t * 100;
             }
           } else {
             phase = "UP";
-            progress = 0;
+            depth = 0;
+            moveProgress = 100;
             completed = count;
           }
 
-          const clamped = Math.max(0, Math.min(1, progress));
+          const clamped = Math.max(0, Math.min(1, depth));
           currentProgress = clamped;
-          const stretch = (1 - clamped) * 100;
-          lastProgress = stretch;
+          lastMoveProgress = Math.max(0, Math.min(100, moveProgress));
+          if (phase === "HOLD") {
+            lastHoldProgress = Math.max(0, Math.min(100, holdProgress));
+          }
           const remaining = Math.max(0, total * 1000 - elapsed);
           lastTimeLeft = formatTimeLeft(remaining);
           const current = Math.min(completed + 1, count);
 
           line1.textContent = `Slow Squat  Rep: ${done ? count : current}/${count}`;
           line2.textContent = `Phase: ${phase}  Tempo: down ${down.toFixed(1)}s / hold ${hold.toFixed(1)}s / up ${up.toFixed(1)}s`;
-          line3.textContent = `伸長(100=伸,0=縮): ${stretch.toFixed(1)}`;
           line4.textContent = `Time left: ${lastTimeLeft}`;
           line5.textContent = `Status: ${paused ? "PAUSED" : done ? "COMPLETE" : "RUNNING"}`;
 
