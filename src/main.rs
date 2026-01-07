@@ -135,6 +135,7 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
         const freq = config.freq;
         const isTouch =
           "ontouchstart" in window || (navigator.maxTouchPoints || 0) > 0;
+        const supportsPointer = "PointerEvent" in window;
 
         const line1 = document.getElementById("line1");
         const line2 = document.getElementById("line2");
@@ -762,7 +763,7 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
         canvas.addEventListener(
           "touchstart",
           (event) => {
-            if (!isTouch) {
+            if (!isTouch || supportsPointer) {
               return;
             }
             event.preventDefault();
