@@ -55,19 +55,68 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
     <title>Slow Squat</title>
     <style>
       :root {
-        --bg: #f6f2e8;
-        --ink: #1b1b1b;
-        --accent: #b33a2b;
-        --grid: #e5dccd;
+        --bg: #f5f0e6;
+        --ink: #1d1c1a;
+        --accent: #c24a3a;
+        --accent-2: #2f6f6d;
+        --grid: #e1d6c4;
+        --paper: rgba(255, 255, 255, 0.78);
+        --shadow: 0 18px 50px rgba(36, 32, 27, 0.18);
       }
       * {
         box-sizing: border-box;
       }
       body {
         margin: 0;
-        font-family: "Hiragino Mincho ProN", "Yu Mincho", "YuMincho", serif;
-        background: var(--bg);
+        min-height: 100vh;
+        font-family: "Hiragino Sans", "Avenir Next", "Yu Gothic", "YuGothic",
+          "Helvetica Neue", sans-serif;
+        background: radial-gradient(
+            900px 500px at 85% 10%,
+            rgba(47, 111, 109, 0.18),
+            transparent 60%
+          ),
+          radial-gradient(
+            800px 500px at 10% 15%,
+            rgba(194, 74, 58, 0.2),
+            transparent 65%
+          ),
+          var(--bg);
         color: var(--ink);
+      }
+      body::before,
+      body::after {
+        content: "";
+        position: fixed;
+        inset: auto;
+        width: 240px;
+        height: 240px;
+        border-radius: 50%;
+        filter: blur(40px);
+        opacity: 0.35;
+        pointer-events: none;
+        z-index: 0;
+        animation: float 14s ease-in-out infinite;
+      }
+      body::before {
+        top: -60px;
+        right: -40px;
+        background: rgba(194, 74, 58, 0.45);
+      }
+      body::after {
+        bottom: -80px;
+        left: -60px;
+        background: rgba(47, 111, 109, 0.4);
+        animation-delay: -7s;
+      }
+      @keyframes float {
+        0%,
+        100% {
+          transform: translateY(0) translateX(0);
+        }
+        50% {
+          transform: translateY(-18px) translateX(10px);
+        }
       }
       #version {
         position: fixed;
@@ -77,32 +126,133 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
         letter-spacing: 0.04em;
         opacity: 0.6;
         pointer-events: none;
+        z-index: 3;
       }
       #app {
         min-height: 100vh;
         display: flex;
         flex-direction: column;
+        gap: 16px;
+        padding: clamp(16px, 3vw, 28px);
+        position: relative;
+        z-index: 1;
       }
       #info {
-        padding: 20px 24px 10px;
-        line-height: 1.5;
-        background: linear-gradient(180deg, #fff, #f6f2e8);
-        border-bottom: 1px solid var(--grid);
+        padding: 18px 22px 14px;
+        line-height: 1.6;
+        background: var(--paper);
+        border: 1px solid var(--grid);
+        border-radius: 18px;
+        box-shadow: var(--shadow);
+        backdrop-filter: blur(12px);
+        position: relative;
+        overflow: hidden;
+        animation: rise 0.8s ease-out both;
+      }
+      #info::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(
+          120deg,
+          rgba(194, 74, 58, 0.12),
+          transparent 45%,
+          rgba(47, 111, 109, 0.1)
+        );
+        opacity: 0.6;
+        pointer-events: none;
       }
       #line1 {
-        font-size: 20px;
-        font-weight: 600;
+        font-size: clamp(18px, 2.4vw, 22px);
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+      }
+      #line2 {
+        font-size: clamp(14px, 2vw, 16px);
+        opacity: 0.85;
+      }
+      #line4,
+      #line5,
+      #line6 {
+        font-size: clamp(12px, 1.6vw, 14px);
+      }
+      #line6 {
+        opacity: 0.7;
+        letter-spacing: 0.02em;
+      }
+      #settings {
+        margin-top: 8px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        font-size: 12px;
         letter-spacing: 0.04em;
+        opacity: 0.85;
+      }
+      #settings label {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        font-weight: 600;
+      }
+      #settings input[type="checkbox"] {
+        width: 16px;
+        height: 16px;
+        accent-color: var(--accent);
       }
       #canvas-wrap {
         flex: 1;
         display: flex;
         min-height: 280px;
+        background: var(--paper);
+        border: 1px solid var(--grid);
+        border-radius: 22px;
+        box-shadow: var(--shadow);
+        overflow: hidden;
+        position: relative;
+        align-items: stretch;
+        animation: rise 0.9s ease-out both;
+        animation-delay: 0.08s;
+      }
+      #canvas-wrap::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(
+          140deg,
+          rgba(255, 255, 255, 0.4),
+          transparent 40%,
+          rgba(47, 111, 109, 0.08)
+        );
+        pointer-events: none;
+        z-index: 1;
       }
       canvas {
+        position: absolute;
+        inset: 0;
         width: 100%;
         height: 100%;
         display: block;
+        z-index: 0;
+      }
+      @keyframes rise {
+        0% {
+          opacity: 0;
+          transform: translateY(12px);
+        }
+        100% {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+      @media (max-width: 700px) {
+        #info {
+          padding: 16px 18px 12px;
+        }
+        #canvas-wrap {
+          min-height: 240px;
+        }
       }
     </style>
   </head>
@@ -115,6 +265,13 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
         <div id="line4">Time left: 00:00.000</div>
         <div id="line5">Status: RUNNING</div>
         <div id="line6">Controls: SPACE=Pause/Resume  ESC=Quit  Ctrl+C=Quit</div>
+        <div id="settings">
+          <label>
+            <input id="voice-toggle" type="checkbox" />
+            Voice
+          </label>
+          <span>DOWN / HOLD / UP</span>
+        </div>
       </div>
       <div id="canvas-wrap">
         <canvas id="squat"></canvas>
@@ -147,11 +304,24 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
         const isTouch =
           "ontouchstart" in window || (navigator.maxTouchPoints || 0) > 0;
         const supportsPointer = "PointerEvent" in window;
+        const palette = {
+          ink: "#1d1c1a",
+          inkSoft: "rgba(29, 28, 26, 0.65)",
+          accent: "#c24a3a",
+          accent2: "#2f6f6d",
+          paper: "rgba(255, 255, 255, 0.86)",
+          paperStrong: "rgba(255, 255, 255, 0.95)",
+          grid: "rgba(29, 28, 26, 0.08)",
+        };
+        const fontSans =
+          '"Hiragino Sans", "Avenir Next", "Yu Gothic", "YuGothic", "Helvetica Neue", sans-serif';
+        const fontMono = '"SF Mono", "Menlo", "Consolas", monospace';
 
         const line1 = document.getElementById("line1");
         const line2 = document.getElementById("line2");
         const line4 = document.getElementById("line4");
         const line5 = document.getElementById("line5");
+        const voiceToggle = document.getElementById("voice-toggle");
 
         const canvas = document.getElementById("squat");
         const ctx = canvas.getContext("2d");
@@ -176,6 +346,43 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
         let countdownStart = null;
         let started = false;
         let animationStart = null;
+        const calloutDurationMs = 700;
+        let calloutText = "";
+        let calloutStart = 0;
+        let calloutUntil = 0;
+        let lastPhase = "";
+        const voiceStorageKey = "squatVoiceEnabled";
+        let voiceEnabled = true;
+        let speechReady = false;
+        let availableVoices = [];
+        let lastCountdownSpoken = null;
+
+        try {
+          const stored = localStorage.getItem(voiceStorageKey);
+          if (stored !== null) {
+            voiceEnabled = stored === "1";
+          }
+        } catch {}
+        if (voiceToggle) {
+          voiceToggle.checked = voiceEnabled;
+          voiceToggle.addEventListener("change", () => {
+            voiceEnabled = voiceToggle.checked;
+            try {
+              localStorage.setItem(voiceStorageKey, voiceEnabled ? "1" : "0");
+            } catch {}
+          });
+        }
+        if ("speechSynthesis" in window) {
+          const refreshVoices = () => {
+            try {
+              availableVoices = window.speechSynthesis.getVoices();
+            } catch {
+              availableVoices = [];
+            }
+          };
+          refreshVoices();
+          window.speechSynthesis.addEventListener("voiceschanged", refreshVoices);
+        }
 
         function pad2(value) {
           return String(value).padStart(2, "0");
@@ -211,27 +418,177 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
           ctx.stroke();
         }
 
+        function roundedRectPath(x, y, w, h, r) {
+          const radius = Math.min(r, w / 2, h / 2);
+          ctx.beginPath();
+          ctx.moveTo(x + radius, y);
+          ctx.arcTo(x + w, y, x + w, y + h, radius);
+          ctx.arcTo(x + w, y + h, x, y + h, radius);
+          ctx.arcTo(x, y + h, x, y, radius);
+          ctx.arcTo(x, y, x + w, y, radius);
+          ctx.closePath();
+        }
+
+        function drawCanvasBackdrop() {
+          const w = viewWidth;
+          const h = viewHeight;
+          if (!w || !h) {
+            return;
+          }
+          const bg = ctx.createLinearGradient(0, 0, w, h);
+          bg.addColorStop(0, "#fbf7f0");
+          bg.addColorStop(1, "#efe4d4");
+          ctx.fillStyle = bg;
+          ctx.fillRect(0, 0, w, h);
+
+          const glowA = ctx.createRadialGradient(
+            w * 0.8,
+            h * 0.15,
+            10,
+            w * 0.8,
+            h * 0.15,
+            Math.max(w, h) * 0.7
+          );
+          glowA.addColorStop(0, "rgba(47, 111, 109, 0.18)");
+          glowA.addColorStop(1, "rgba(47, 111, 109, 0)");
+          ctx.fillStyle = glowA;
+          ctx.fillRect(0, 0, w, h);
+
+          const glowB = ctx.createRadialGradient(
+            w * 0.2,
+            h * 0.9,
+            10,
+            w * 0.2,
+            h * 0.9,
+            Math.max(w, h) * 0.75
+          );
+          glowB.addColorStop(0, "rgba(194, 74, 58, 0.16)");
+          glowB.addColorStop(1, "rgba(194, 74, 58, 0)");
+          ctx.fillStyle = glowB;
+          ctx.fillRect(0, 0, w, h);
+
+          const spacing = Math.max(36, Math.floor(Math.min(w, h) * 0.12));
+          ctx.save();
+          ctx.strokeStyle = palette.grid;
+          ctx.lineWidth = 1;
+          for (let x = spacing; x < w; x += spacing) {
+            ctx.beginPath();
+            ctx.moveTo(x, 0);
+            ctx.lineTo(x, h);
+            ctx.stroke();
+          }
+          for (let y = spacing; y < h; y += spacing) {
+            ctx.beginPath();
+            ctx.moveTo(0, y);
+            ctx.lineTo(w, y);
+            ctx.stroke();
+          }
+          ctx.restore();
+        }
+
+        function drawPanel(x, y, w, h, r, softShadow = true) {
+          ctx.save();
+          ctx.fillStyle = palette.paper;
+          ctx.shadowColor = softShadow ? "rgba(29, 28, 26, 0.18)" : "transparent";
+          ctx.shadowBlur = softShadow ? 14 : 0;
+          ctx.shadowOffsetY = softShadow ? 8 : 0;
+          roundedRectPath(x, y, w, h, r);
+          ctx.fill();
+          ctx.shadowColor = "transparent";
+          ctx.strokeStyle = "rgba(29, 28, 26, 0.14)";
+          ctx.lineWidth = 1.5;
+          ctx.stroke();
+          ctx.restore();
+        }
+
+        function drawProgressBar(x, y, w, h, percent, gradient) {
+          const clamped = Math.max(0, Math.min(100, percent));
+          const radius = Math.min(12, h / 2);
+          drawPanel(x - 4, y - 4, w + 8, h + 8, radius + 4, false);
+          ctx.save();
+          roundedRectPath(x, y, w, h, radius);
+          ctx.clip();
+          ctx.fillStyle = palette.paperStrong;
+          ctx.fillRect(x, y, w, h);
+          if (clamped > 0) {
+            ctx.fillStyle = gradient;
+            ctx.fillRect(x, y, (w * clamped) / 100, h);
+          }
+          ctx.restore();
+        }
+
+        function drawVerticalProgressBar(x, y, w, h, percent, gradient) {
+          const clamped = Math.max(0, Math.min(100, percent));
+          const radius = Math.min(12, w / 2);
+          drawPanel(x - 4, y - 4, w + 8, h + 8, radius + 4, false);
+          ctx.save();
+          roundedRectPath(x, y, w, h, radius);
+          ctx.clip();
+          ctx.fillStyle = palette.paperStrong;
+          ctx.fillRect(x, y, w, h);
+          if (clamped > 0) {
+            ctx.fillStyle = gradient;
+            const fillHeight = (h * clamped) / 100;
+            ctx.fillRect(x, y + h - fillHeight, w, fillHeight);
+          }
+          ctx.restore();
+        }
+
         function drawTimeOverlay(text) {
           const w = viewWidth;
           const h = viewHeight;
           if (!w || !h) {
             return;
           }
-          const fontSize = Math.max(28, Math.floor(h * 0.08));
-          const padding = Math.floor(fontSize * 0.35);
+          const fontSize = Math.max(24, Math.floor(h * 0.075));
+          const paddingX = Math.floor(fontSize * 0.5);
+          const paddingY = Math.floor(fontSize * 0.35);
           ctx.save();
-          ctx.font = `700 ${fontSize}px "Hiragino Mincho ProN", "Yu Mincho", "YuMincho", serif`;
-          ctx.textAlign = "right";
-          ctx.textBaseline = "top";
+          ctx.font = `700 ${fontSize}px ${fontMono}`;
+          ctx.textAlign = "left";
+          ctx.textBaseline = "middle";
           const metrics = ctx.measureText(text);
-          const boxW = metrics.width + padding * 2;
-          const boxH = fontSize + padding;
-          const x = w - padding;
-          const y = padding;
-          ctx.fillStyle = "rgba(246, 242, 232, 0.9)";
-          ctx.fillRect(w - boxW - padding, y - padding * 0.4, boxW, boxH);
-          ctx.fillStyle = "#1b1b1b";
-          ctx.fillText(text, x, y);
+          const boxW = metrics.width + paddingX * 2;
+          const boxH = fontSize + paddingY * 2;
+          const x = w - boxW - paddingX;
+          const y = paddingY;
+          drawPanel(x, y, boxW, boxH, Math.min(16, boxH / 2));
+          ctx.fillStyle = palette.accent;
+          ctx.fillRect(x, y, 4, boxH);
+          ctx.fillStyle = palette.ink;
+          ctx.fillText(text, x + paddingX, y + boxH / 2);
+          ctx.restore();
+        }
+
+        function drawCallout(now) {
+          if (!calloutText) {
+            return;
+          }
+          if (now > calloutUntil) {
+            return;
+          }
+          const w = viewWidth;
+          const h = viewHeight;
+          if (!w || !h) {
+            return;
+          }
+          const elapsed = Math.max(0, now - calloutStart);
+          const progress = Math.min(1, elapsed / calloutDurationMs);
+          const alpha = 1 - progress;
+          const scale = 1 + (1 - progress) * 0.06;
+          const fontSize = Math.max(26, Math.floor(h * 0.12));
+
+          ctx.save();
+          ctx.translate(w / 2, h * 0.46);
+          ctx.scale(scale, scale);
+          ctx.globalAlpha = alpha;
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.font = `800 ${fontSize}px ${fontSans}`;
+          ctx.shadowColor = "rgba(29, 28, 26, 0.2)";
+          ctx.shadowBlur = 16;
+          ctx.fillStyle = palette.ink;
+          ctx.fillText(calloutText, 0, 0);
           ctx.restore();
         }
 
@@ -253,22 +610,18 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
           const holdFillHeight = Math.floor((barHeight * clampedHold) / 100);
 
           ctx.save();
-          ctx.strokeStyle = "#1b1b1b";
-          ctx.lineWidth = 3;
-          ctx.fillStyle = "rgba(246, 242, 232, 0.9)";
-          ctx.fillRect(barX - 6, barY - 6, barWidth + 12, barHeight + 12);
-          ctx.fillRect(holdBarX - 6, barY - 6, barWidth + 12, barHeight + 12);
-          ctx.strokeRect(barX, barY, barWidth, barHeight);
-          ctx.strokeRect(holdBarX, barY, barWidth, barHeight);
+          const moveGradient = ctx.createLinearGradient(0, barY + barHeight, 0, barY);
+          moveGradient.addColorStop(0, palette.accent);
+          moveGradient.addColorStop(1, "rgba(194, 74, 58, 0.2)");
+          const holdGradient = ctx.createLinearGradient(0, barY + barHeight, 0, barY);
+          holdGradient.addColorStop(0, palette.accent2);
+          holdGradient.addColorStop(1, "rgba(47, 111, 109, 0.2)");
+          drawVerticalProgressBar(barX, barY, barWidth, barHeight, clampedMove, moveGradient);
+          drawVerticalProgressBar(holdBarX, barY, barWidth, barHeight, clampedHold, holdGradient);
 
-          ctx.fillStyle = "#b33a2b";
-          ctx.fillRect(barX, barY + barHeight - moveFillHeight, barWidth, moveFillHeight);
-          ctx.fillStyle = "#1b1b1b";
-          ctx.fillRect(holdBarX, barY + barHeight - holdFillHeight, barWidth, holdFillHeight);
-
-          const fontSize = Math.max(16, Math.floor(h * 0.06));
-          ctx.font = `700 ${fontSize}px "Hiragino Mincho ProN", "Yu Mincho", "YuMincho", serif`;
-          ctx.fillStyle = "#1b1b1b";
+          const fontSize = Math.max(14, Math.floor(h * 0.055));
+          ctx.font = `700 ${fontSize}px ${fontSans}`;
+          ctx.fillStyle = palette.ink;
           ctx.textAlign = "left";
           ctx.textBaseline = "top";
           ctx.fillText(clampedMove.toFixed(0), barX, barY - fontSize - 10);
@@ -287,25 +640,19 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
           const barHeight = Math.max(14, Math.floor(h * 0.03));
           const x = Math.floor((w - barWidth) * 0.5);
 
-          ctx.save();
-          ctx.fillStyle = "rgba(246, 242, 232, 0.9)";
-          ctx.fillRect(x - 6, y - 6, barWidth + 12, barHeight + 12);
-          ctx.strokeStyle = "#1b1b1b";
-          ctx.lineWidth = 3;
-          ctx.strokeRect(x, y, barWidth, barHeight);
+          const gradient = ctx.createLinearGradient(x, y, x + barWidth, y);
+          gradient.addColorStop(0, palette.accent);
+          gradient.addColorStop(1, palette.accent2);
+          drawProgressBar(x, y, barWidth, barHeight, clamped, gradient);
 
-          ctx.fillStyle = "#b33a2b";
-          ctx.fillRect(x, y, (barWidth * clamped) / 100, barHeight);
-
-          const fontSize = Math.max(14, Math.floor(h * 0.04));
+          const fontSize = Math.max(13, Math.floor(h * 0.035));
           const textX = x + barWidth + Math.max(12, Math.floor(w * 0.02));
           const textY = y + barHeight / 2;
-          ctx.font = `700 ${fontSize}px "Hiragino Mincho ProN", "Yu Mincho", "YuMincho", serif`;
-          ctx.fillStyle = "#1b1b1b";
+          ctx.font = `700 ${fontSize}px ${fontSans}`;
+          ctx.fillStyle = palette.ink;
           ctx.textAlign = "left";
           ctx.textBaseline = "middle";
-          ctx.fillText(`${label} ${clamped.toFixed(2)}%`, textX, textY);
-          ctx.restore();
+          ctx.fillText(`${label} ${clamped.toFixed(1)}%`, textX, textY);
         }
 
         function drawBottomProgressBars() {
@@ -336,23 +683,17 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
           const x = Math.floor(w * 0.62);
           const y = Math.floor(h * 0.5);
 
-          ctx.save();
-          ctx.fillStyle = "rgba(246, 242, 232, 0.9)";
-          ctx.fillRect(x - 6, y - 6, barWidth + 12, barHeight + 12);
-          ctx.strokeStyle = "#1b1b1b";
-          ctx.lineWidth = 3;
-          ctx.strokeRect(x, y, barWidth, barHeight);
+          const gradient = ctx.createLinearGradient(x, y, x + barWidth, y);
+          gradient.addColorStop(0, palette.accent2);
+          gradient.addColorStop(1, "rgba(47, 111, 109, 0.3)");
+          drawProgressBar(x, y, barWidth, barHeight, clamped, gradient);
 
-          ctx.fillStyle = "#1b1b1b";
-          ctx.fillRect(x, y, (barWidth * clamped) / 100, barHeight);
-
-          const fontSize = Math.max(14, Math.floor(h * 0.04));
-          ctx.font = `700 ${fontSize}px "Hiragino Mincho ProN", "Yu Mincho", "YuMincho", serif`;
-          ctx.fillStyle = "#1b1b1b";
+          const fontSize = Math.max(13, Math.floor(h * 0.035));
+          ctx.font = `700 ${fontSize}px ${fontSans}`;
+          ctx.fillStyle = palette.ink;
           ctx.textAlign = "left";
           ctx.textBaseline = "bottom";
           ctx.fillText(`REST ${clamped.toFixed(0)}%`, x, y - 6);
-          ctx.restore();
         }
 
         function drawCountdown(value) {
@@ -362,14 +703,16 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
             return;
           }
           ctx.clearRect(0, 0, w, h);
-          ctx.fillStyle = "#f6f2e8";
-          ctx.fillRect(0, 0, w, h);
-          ctx.fillStyle = "#1b1b1b";
+          drawCanvasBackdrop();
+          ctx.fillStyle = palette.ink;
           ctx.textAlign = "center";
           ctx.textBaseline = "middle";
           const fontSize = Math.max(48, Math.floor(h * 0.5));
-          ctx.font = `700 ${fontSize}px "Hiragino Mincho ProN", "Yu Mincho", "YuMincho", serif`;
+          ctx.font = `700 ${fontSize}px ${fontSans}`;
+          ctx.shadowColor = "rgba(29, 28, 26, 0.2)";
+          ctx.shadowBlur = 14;
           ctx.fillText(String(value), w / 2, h / 2);
+          ctx.shadowColor = "transparent";
           drawTimeOverlay(lastTimeLeft);
           drawProgressOverlay(lastMoveProgress, lastHoldProgress);
           drawBottomProgressBars();
@@ -383,14 +726,13 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
             return;
           }
           ctx.clearRect(0, 0, w, h);
-          ctx.fillStyle = "#f6f2e8";
-          ctx.fillRect(0, 0, w, h);
-          ctx.fillStyle = "#1b1b1b";
+          drawCanvasBackdrop();
+          ctx.fillStyle = palette.ink;
           ctx.textAlign = "center";
           ctx.textBaseline = "middle";
           const fontSize = Math.max(22, Math.floor(h * 0.12));
           const lineHeight = Math.floor(fontSize * 1.15);
-          ctx.font = `700 ${fontSize}px "Hiragino Mincho ProN", "Yu Mincho", "YuMincho", serif`;
+          ctx.font = `700 ${fontSize}px ${fontSans}`;
           const lines = isTouch
             ? ["TAP", "TO", "SQUAT"]
             : ["PRESS", "ENTER", "TO", "SQUAT"];
@@ -413,8 +755,7 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
             return;
           }
           ctx.clearRect(0, 0, w, h);
-          ctx.strokeStyle = "#1b1b1b";
-          ctx.lineWidth = 2;
+          drawCanvasBackdrop();
           ctx.lineCap = "round";
           ctx.lineJoin = "round";
 
@@ -476,11 +817,45 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
           const kneeL = kneeFromHip(hipLX, hipY, ankleLX, footY, true);
           const kneeR = kneeFromHip(hipRX, hipY, ankleRX, footY, false);
 
+          ctx.save();
+          ctx.strokeStyle = "rgba(29, 28, 26, 0.18)";
+          ctx.lineWidth = Math.max(2, 2.2 * scale);
+          ctx.setLineDash([10 * scale, 12 * scale]);
+          line(0, ground, w, ground);
+          ctx.restore();
+
+          const figureGradient = ctx.createLinearGradient(
+            0,
+            shoulderY - headR * 2,
+            0,
+            ground
+          );
+          figureGradient.addColorStop(0, palette.ink);
+          figureGradient.addColorStop(1, palette.accent2);
+          ctx.save();
+          ctx.strokeStyle = figureGradient;
+          ctx.lineWidth = Math.max(2.2, 2.8 * scale);
+          ctx.shadowColor = "rgba(29, 28, 26, 0.2)";
+          ctx.shadowBlur = 8 * scale;
+          ctx.shadowOffsetY = 3 * scale;
+          ctx.setLineDash([]);
           line(0, ground, w, ground);
           line(shoulderX, shoulderY, hipX, hipY);
 
           ctx.beginPath();
           ctx.arc(shoulderX, shoulderY - headR * 1.6, headR, 0, Math.PI * 2);
+          const headGradient = ctx.createRadialGradient(
+            shoulderX - headR * 0.3,
+            shoulderY - headR * 1.9,
+            headR * 0.2,
+            shoulderX,
+            shoulderY - headR * 1.6,
+            headR * 1.2
+          );
+          headGradient.addColorStop(0, "rgba(255, 255, 255, 0.95)");
+          headGradient.addColorStop(1, "rgba(194, 74, 58, 0.7)");
+          ctx.fillStyle = headGradient;
+          ctx.fill();
           ctx.stroke();
 
           const armDrop = 26 * scale + depth * 10 * scale;
@@ -496,6 +871,8 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
           const foot = 14 * scale;
           line(ankleLX - foot, footY, ankleLX + foot, footY);
           line(ankleRX - foot, footY, ankleRX + foot, footY);
+          ctx.restore();
+          drawCallout(tremorTime);
           drawTimeOverlay(lastTimeLeft);
           drawProgressOverlay(lastMoveProgress, lastHoldProgress);
           drawBottomProgressBars();
@@ -515,6 +892,9 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
             lastSetProgress = 0;
             lastRestProgress = 0;
             restActive = false;
+            lastPhase = "";
+            calloutText = "";
+            lastCountdownSpoken = null;
             line1.textContent = `Slow Squat  Set: 1/${sets}  Rep: 1/${count}`;
             line2.textContent = `Phase: DOWN  Tempo: down ${down.toFixed(
               1
@@ -532,6 +912,10 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
               1,
               countdownSeconds - Math.floor(elapsedCountdown / 1000)
             );
+            if (lastCountdownSpoken !== remainingCountdown) {
+              speakCountdown(remainingCountdown);
+              lastCountdownSpoken = remainingCountdown;
+            }
             line5.textContent = `Status: COUNTDOWN ${remainingCountdown}`;
             drawCountdown(remainingCountdown);
 
@@ -645,6 +1029,15 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
               : setIndex + 1;
           const current = isRest ? 0 : Math.min(completed + 1, count);
 
+          if (!done && !isRest) {
+            if (phase !== lastPhase) {
+              triggerCallout(phase, effectiveNow);
+              lastPhase = phase;
+            }
+          } else {
+            lastPhase = phase;
+          }
+
           line1.textContent = `Slow Squat  Set: ${displaySet}/${sets}  Rep: ${done ? count : current}/${count}`;
           line2.textContent = `Phase: ${phase}  Tempo: down ${down.toFixed(
             1
@@ -665,6 +1058,78 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
           if (!done && !stopped) {
             requestAnimationFrame(update);
           }
+        }
+
+        function speakText(text) {
+          if (!voiceEnabled) {
+            return;
+          }
+          if (!speechReady) {
+            return;
+          }
+          if (!("speechSynthesis" in window)) {
+            return;
+          }
+          try {
+            window.speechSynthesis.cancel();
+            window.speechSynthesis.resume();
+            const utter = new SpeechSynthesisUtterance(text);
+            const preferred = availableVoices.find((voice) =>
+              voice.lang.toLowerCase().startsWith("en")
+            );
+            if (preferred) {
+              utter.voice = preferred;
+            }
+            utter.rate = 1;
+            utter.pitch = 1;
+            utter.volume = 0.9;
+            window.speechSynthesis.speak(utter);
+          } catch {}
+        }
+
+        function speakPhase(text) {
+          speakText(text);
+        }
+
+        function speakCountdown(value) {
+          speakText(String(value));
+        }
+
+        function unlockSpeech() {
+          if (!voiceEnabled || speechReady) {
+            return;
+          }
+          if (!("speechSynthesis" in window)) {
+            return;
+          }
+          speechReady = true;
+          try {
+            const utter = new SpeechSynthesisUtterance(" ");
+            utter.volume = 0;
+            utter.rate = 1;
+            utter.pitch = 1;
+            window.speechSynthesis.speak(utter);
+          } catch {
+            speechReady = true;
+          }
+        }
+
+        function triggerCallout(phase, now) {
+          let text = "";
+          if (phase === "DOWN") {
+            text = "DOWN!";
+          } else if (phase === "HOLD") {
+            text = "HOLD!";
+          } else if (phase === "UP") {
+            text = "UP!";
+          }
+          if (!text) {
+            return;
+          }
+          calloutText = text;
+          calloutStart = now;
+          calloutUntil = now + calloutDurationMs;
+          speakPhase(phase);
         }
 
         function togglePause() {
@@ -714,6 +1179,7 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
           if (started || countdownStarted) {
             return;
           }
+          unlockSpeech();
           countdownStarted = true;
           countdownStart = performance.now();
           requestAnimationFrame(update);
@@ -723,6 +1189,7 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
           if (started) {
             return;
           }
+          unlockSpeech();
           countdownStarted = true;
           started = true;
           animationStart = performance.now();
@@ -1221,9 +1688,6 @@ fn run_squat_web(args: SquatWebArgs) -> Result<()> {
   );
   let content_type = Header::from_bytes("Content-Type", "text/html; charset=utf-8")
     .map_err(|_| color_eyre::eyre::eyre!("invalid content-type header"))?;
-
-  println!("Serving squat animation on http://{}", args.addr);
-  println!("Press Ctrl+C to stop.");
 
   while !exit_flag.load(Ordering::SeqCst) {
     match server.recv_timeout(Duration::from_millis(200)) {
