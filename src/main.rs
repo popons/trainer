@@ -99,7 +99,7 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
   <body>
     <div id="app">
       <div id="info">
-        <div id="line1">Slow Squat  Rep: 1/__COUNT__</div>
+        <div id="line1">Slow Squat  Set: 1/__SETS__  Rep: 1/__COUNT__</div>
         <div id="line2">Phase: DOWN  Tempo: down 0.0s / hold 0.0s / up 0.0s</div>
         <div id="line4">Time left: 00:00.000</div>
         <div id="line5">Status: RUNNING</div>
@@ -111,14 +111,22 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
     </div>
     <script>
       (() => {
-        const config = { duration: __DURATION__, count: __COUNT__ };
+        const config = {
+          duration: __DURATION__,
+          count: __COUNT__,
+          sets: __SETS__,
+          interval: __INTERVAL__,
+        };
         const total = config.duration;
         const count = config.count;
+        const sets = config.sets;
+        const interval = config.interval;
         const repDuration = total / count;
         const hold = __HOLD__;
         const moveDuration = (repDuration - hold) / 2;
         const down = moveDuration;
         const up = moveDuration;
+        const overallTotal = total * sets + interval * (sets - 1);
         const isTouch =
           "ontouchstart" in window || (navigator.maxTouchPoints || 0) > 0;
 
@@ -141,6 +149,7 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
         let lastHoldProgress = 0;
         let lastTimeLeft = "00:00.000";
         let lastOverallProgress = 0;
+        let lastSetProgress = 0;
         const countdownSeconds = 5;
         let countdownStarted = false;
         let countdownStart = null;
@@ -241,12 +250,12 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
           ctx.fillStyle = "#1b1b1b";
           ctx.textAlign = "left";
           ctx.textBaseline = "top";
-          ctx.fillText(clampedMove.toFixed(1), barX, barY - fontSize - 10);
-          ctx.fillText(clampedHold.toFixed(1), holdBarX, barY - fontSize - 10);
+          ctx.fillText(clampedMove.toFixed(0), barX, barY - fontSize - 10);
+          ctx.fillText(clampedHold.toFixed(0), holdBarX, barY - fontSize - 10);
           ctx.restore();
         }
 
-        function drawOverallProgress(value) {
+        function drawHorizontalProgress(value, y, label) {
           const w = viewWidth;
           const h = viewHeight;
           if (!w || !h) {
@@ -254,9 +263,8 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
           }
           const clamped = Math.max(0, Math.min(100, value));
           const barWidth = Math.max(220, Math.floor(w * 0.55));
-          const barHeight = Math.max(16, Math.floor(h * 0.035));
+          const barHeight = Math.max(14, Math.floor(h * 0.03));
           const x = Math.floor((w - barWidth) * 0.5);
-          const y = Math.floor(h * 0.9);
 
           ctx.save();
           ctx.fillStyle = "rgba(246, 242, 232, 0.9)";
@@ -268,13 +276,28 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
           ctx.fillStyle = "#b33a2b";
           ctx.fillRect(x, y, (barWidth * clamped) / 100, barHeight);
 
-          const fontSize = Math.max(18, Math.floor(h * 0.05));
+          const fontSize = Math.max(14, Math.floor(h * 0.04));
+          const textX = x + barWidth + Math.max(12, Math.floor(w * 0.02));
+          const textY = y + barHeight / 2;
           ctx.font = `700 ${fontSize}px "Hiragino Mincho ProN", "Yu Mincho", "YuMincho", serif`;
           ctx.fillStyle = "#1b1b1b";
-          ctx.textAlign = "center";
-          ctx.textBaseline = "bottom";
-          ctx.fillText(`${clamped.toFixed(2)}%`, w / 2, y - 8);
+          ctx.textAlign = "left";
+          ctx.textBaseline = "middle";
+          ctx.fillText(`${label} ${clamped.toFixed(2)}%`, textX, textY);
           ctx.restore();
+        }
+
+        function drawBottomProgressBars() {
+          const h = viewHeight;
+          if (!h) {
+            return;
+          }
+          const barHeight = Math.max(14, Math.floor(h * 0.03));
+          const gap = Math.max(10, Math.floor(barHeight * 1.2));
+          const overallY = Math.floor(h * 0.9);
+          const setY = overallY - barHeight - gap;
+          drawHorizontalProgress(lastSetProgress, setY, "SET");
+          drawHorizontalProgress(lastOverallProgress, overallY, "TOTAL");
         }
 
         function drawCountdown(value) {
@@ -294,7 +317,7 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
           ctx.fillText(String(value), w / 2, h / 2);
           drawTimeOverlay(lastTimeLeft);
           drawProgressOverlay(lastMoveProgress, lastHoldProgress);
-          drawOverallProgress(lastOverallProgress);
+          drawBottomProgressBars();
         }
 
         function drawStartPrompt() {
@@ -312,7 +335,9 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
           const fontSize = Math.max(22, Math.floor(h * 0.12));
           const lineHeight = Math.floor(fontSize * 1.15);
           ctx.font = `700 ${fontSize}px "Hiragino Mincho ProN", "Yu Mincho", "YuMincho", serif`;
-          const lines = isTouch ? ["TAP", "TO", "START"] : ["PRESS", "ENTER", "TO", "START"];
+          const lines = isTouch
+            ? ["TAP", "TO", "SQUAT"]
+            : ["PRESS", "ENTER", "TO", "SQUAT"];
           const totalHeight = lineHeight * (lines.length - 1);
           let y = h / 2 - totalHeight / 2;
           for (const line of lines) {
@@ -321,7 +346,7 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
           }
           drawTimeOverlay(lastTimeLeft);
           drawProgressOverlay(lastMoveProgress, lastHoldProgress);
-          drawOverallProgress(lastOverallProgress);
+          drawBottomProgressBars();
         }
 
         function drawFigure(progress) {
@@ -408,7 +433,7 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
           line(ankleRX - foot, footY, ankleRX + foot, footY);
           drawTimeOverlay(lastTimeLeft);
           drawProgressOverlay(lastMoveProgress, lastHoldProgress);
-          drawOverallProgress(lastOverallProgress);
+          drawBottomProgressBars();
         }
 
         function update() {
@@ -421,11 +446,12 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
             lastMoveProgress = 0;
             lastHoldProgress = 0;
             lastOverallProgress = 0;
-            line1.textContent = `Slow Squat  Rep: 1/${count}`;
+            lastSetProgress = 0;
+            line1.textContent = `Slow Squat  Set: 1/${sets}  Rep: 1/${count}`;
             line2.textContent = `Phase: DOWN  Tempo: down ${down.toFixed(
               1
             )}s / hold ${hold.toFixed(1)}s / up ${up.toFixed(1)}s`;
-            lastTimeLeft = formatTimeLeft(total * 1000);
+            lastTimeLeft = formatTimeLeft(overallTotal * 1000);
             line4.textContent = `Time left: ${lastTimeLeft}`;
             if (!countdownStarted) {
               line5.textContent = isTouch ? "Status: WAITING (TAP)" : "Status: WAITING (ENTER)";
@@ -455,16 +481,52 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
 
           const effectiveNow = paused && pauseStarted ? pauseStarted : now;
           const elapsed = Math.max(0, effectiveNow - animationStart - pausedTotal);
-
-          const done = elapsed >= total * 1000;
+          const overallMs = overallTotal * 1000;
+          const done = elapsed >= overallMs;
           let phase = "DOWN";
           let depth = 0;
           let moveProgress = lastMoveProgress;
           let holdProgress = lastHoldProgress;
-          let completed = Math.min(Math.floor(elapsed / (repDuration * 1000)), count);
+          let restRemainingMs = 0;
+          let setIndex = 0;
+          let withinSetMs = 0;
+          let isRest = false;
+          let completed = 0;
 
           if (!done) {
-            const within = elapsed / 1000 - completed * repDuration;
+            const setMs = total * 1000;
+            const restMs = interval * 1000;
+            const cycleMs = setMs + restMs;
+            setIndex = Math.floor(elapsed / cycleMs);
+            if (setIndex >= sets) {
+              setIndex = sets - 1;
+            }
+            const withinCycle = elapsed - setIndex * cycleMs;
+            if (setIndex < sets - 1 && withinCycle >= setMs) {
+              isRest = true;
+              restRemainingMs = Math.max(0, restMs - (withinCycle - setMs));
+            } else {
+              withinSetMs = withinCycle;
+            }
+          }
+
+          if (done) {
+            phase = "UP";
+            depth = 0;
+            moveProgress = 100;
+            completed = count;
+            lastSetProgress = 100;
+          } else if (isRest) {
+            phase = "REST";
+            depth = 0;
+            moveProgress = 0;
+            holdProgress = 0;
+            completed = 0;
+            lastSetProgress = 100;
+          } else {
+            const withinSetSec = withinSetMs / 1000;
+            completed = Math.min(Math.floor(withinSetSec / repDuration), count);
+            const within = withinSetSec - completed * repDuration;
             if (within < down) {
               phase = "DOWN";
               const t = down > 0 ? within / down : 1;
@@ -482,11 +544,7 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
               depth = 1 - t;
               moveProgress = t * 100;
             }
-          } else {
-            phase = "UP";
-            depth = 0;
-            moveProgress = 100;
-            completed = count;
+            lastSetProgress = Math.max(0, Math.min(100, (withinSetSec / total) * 100));
           }
 
           const clamped = Math.max(0, Math.min(1, depth));
@@ -495,18 +553,30 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
           if (phase === "HOLD") {
             lastHoldProgress = Math.max(0, Math.min(100, holdProgress));
           }
-          const remaining = Math.max(0, total * 1000 - elapsed);
-          lastOverallProgress = Math.max(
-            0,
-            Math.min(100, (elapsed / (total * 1000)) * 100)
-          );
+          const remaining = Math.max(0, overallMs - elapsed);
+          lastOverallProgress = Math.max(0, Math.min(100, (elapsed / overallMs) * 100));
           lastTimeLeft = formatTimeLeft(remaining);
-          const current = Math.min(completed + 1, count);
+          const displaySet = done
+            ? sets
+            : isRest && setIndex < sets - 1
+              ? setIndex + 2
+              : setIndex + 1;
+          const current = isRest ? 0 : Math.min(completed + 1, count);
 
-          line1.textContent = `Slow Squat  Rep: ${done ? count : current}/${count}`;
-          line2.textContent = `Phase: ${phase}  Tempo: down ${down.toFixed(1)}s / hold ${hold.toFixed(1)}s / up ${up.toFixed(1)}s`;
+          line1.textContent = `Slow Squat  Set: ${displaySet}/${sets}  Rep: ${done ? count : current}/${count}`;
+          line2.textContent = `Phase: ${phase}  Tempo: down ${down.toFixed(
+            1
+          )}s / hold ${hold.toFixed(1)}s / up ${up.toFixed(1)}s`;
           line4.textContent = `Time left: ${lastTimeLeft}`;
-          line5.textContent = `Status: ${paused ? "PAUSED" : done ? "COMPLETE" : "RUNNING"}`;
+          if (paused) {
+            line5.textContent = "Status: PAUSED";
+          } else if (done) {
+            line5.textContent = "Status: COMPLETE";
+          } else if (isRest) {
+            line5.textContent = `Status: REST ${formatTimeLeft(restRemainingMs)}`;
+          } else {
+            line5.textContent = "Status: RUNNING";
+          }
 
           drawFigure(clamped);
 
@@ -660,10 +730,14 @@ struct SquatArgs {
 
 #[derive(Args, Debug)]
 struct SquatWebArgs {
-  #[arg(long, default_value_t = 300, value_parser = clap::value_parser!(u64).range(1..))]
+  #[arg(long, default_value_t = 150, value_parser = clap::value_parser!(u64).range(1..))]
   duration: u64,
-  #[arg(long, default_value_t = 20, value_parser = clap::value_parser!(u32).range(1..))]
+  #[arg(long, default_value_t = 10, value_parser = clap::value_parser!(u32).range(1..))]
   count: u32,
+  #[arg(long = "sets", alias = "set", default_value_t = 2, value_parser = clap::value_parser!(u32).range(1..))]
+  sets: u32,
+  #[arg(long, default_value_t = 60, value_parser = clap::value_parser!(u64).range(0..))]
+  interval: u64,
   #[arg(long, default_value = "127.0.0.1:12002")]
   addr: String,
 }
@@ -742,10 +816,12 @@ fn terminal_rows() -> usize {
     .unwrap_or(DEFAULT_ROWS)
 }
 
-fn squat_web_html(duration: u64, count: u32) -> String {
+fn squat_web_html(duration: u64, count: u32, sets: u32, interval: u64) -> String {
   SQUAT_WEB_HTML
     .replace("__DURATION__", &duration.to_string())
     .replace("__COUNT__", &count.to_string())
+    .replace("__SETS__", &sets.to_string())
+    .replace("__INTERVAL__", &interval.to_string())
     .replace("__HOLD__", &format!("{:.1}", HOLD_SECS))
 }
 
@@ -1001,7 +1077,7 @@ fn run_squat_web(args: SquatWebArgs) -> Result<()> {
   })?;
 
   let server = Server::http(&args.addr).map_err(|err| color_eyre::eyre::eyre!(err))?;
-  let html = squat_web_html(args.duration, args.count);
+  let html = squat_web_html(args.duration, args.count, args.sets, args.interval);
   let content_type = Header::from_bytes("Content-Type", "text/html; charset=utf-8")
     .map_err(|_| color_eyre::eyre::eyre!("invalid content-type header"))?;
 
