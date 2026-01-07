@@ -35,6 +35,7 @@ const POSE_COUNT: usize = 9;
 const DEFAULT_ROWS: usize = 24;
 const HOLD_SECS: f64 = 5.0;
 const FLOOR: &str = "==============================";
+const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 const POSES: [[&str; POSE_LINES]; POSE_COUNT] = [
   ["   O   ", "  /|\\  ", "   |   ", "  / \\  ", " /   \\ "],
   ["   O   ", "  /|\\  ", "   |   ", "  / \\  ", " /_ _\\ "],
@@ -68,6 +69,15 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
         background: var(--bg);
         color: var(--ink);
       }
+      #version {
+        position: fixed;
+        top: 10px;
+        right: 12px;
+        font-size: 12px;
+        letter-spacing: 0.04em;
+        opacity: 0.6;
+        pointer-events: none;
+      }
       #app {
         min-height: 100vh;
         display: flex;
@@ -97,6 +107,7 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
     </style>
   </head>
   <body>
+    <div id="version">v__VERSION__</div>
     <div id="app">
       <div id="info">
         <div id="line1">Slow Squat  Set: 1/__SETS__  Rep: 1/__COUNT__</div>
@@ -932,6 +943,7 @@ fn squat_web_html(
     .replace("__COUNT__", &count.to_string())
     .replace("__SETS__", &sets.to_string())
     .replace("__INTERVAL__", &interval.to_string())
+    .replace("__VERSION__", APP_VERSION)
     .replace("__SWING_START__", &format!("{:.3}", swing_start))
     .replace("__SWING_STOP__", &format!("{:.3}", swing_stop))
     .replace("__FREQ__", &format!("{:.3}", freq))
