@@ -116,6 +116,9 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
           count: __COUNT__,
           sets: __SETS__,
           interval: __INTERVAL__,
+          swingStart: __SWING_START__,
+          swingStop: __SWING_STOP__,
+          freq: __FREQ__,
         };
         const total = config.duration;
         const count = config.count;
@@ -127,6 +130,9 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
         const down = moveDuration;
         const up = moveDuration;
         const overallTotal = total * sets + interval * (sets - 1);
+        const swingStart = config.swingStart;
+        const swingStop = config.swingStop;
+        const freq = config.freq;
         const isTouch =
           "ontouchstart" in window || (navigator.maxTouchPoints || 0) > 0;
 
@@ -150,6 +156,9 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
         let lastTimeLeft = "00:00.000";
         let lastOverallProgress = 0;
         let lastSetProgress = 0;
+        let lastRestProgress = 0;
+        let restActive = false;
+        let tremorTime = 0;
         const countdownSeconds = 5;
         let countdownStarted = false;
         let countdownStart = null;
@@ -300,6 +309,40 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
           drawHorizontalProgress(lastOverallProgress, overallY, "TOTAL");
         }
 
+        function drawRestProgress(value) {
+          if (!restActive) {
+            return;
+          }
+          const w = viewWidth;
+          const h = viewHeight;
+          if (!w || !h) {
+            return;
+          }
+          const clamped = Math.max(0, Math.min(100, value));
+          const barWidth = Math.max(140, Math.floor(w * 0.28));
+          const barHeight = Math.max(12, Math.floor(h * 0.025));
+          const x = Math.floor(w * 0.62);
+          const y = Math.floor(h * 0.5);
+
+          ctx.save();
+          ctx.fillStyle = "rgba(246, 242, 232, 0.9)";
+          ctx.fillRect(x - 6, y - 6, barWidth + 12, barHeight + 12);
+          ctx.strokeStyle = "#1b1b1b";
+          ctx.lineWidth = 3;
+          ctx.strokeRect(x, y, barWidth, barHeight);
+
+          ctx.fillStyle = "#1b1b1b";
+          ctx.fillRect(x, y, (barWidth * clamped) / 100, barHeight);
+
+          const fontSize = Math.max(14, Math.floor(h * 0.04));
+          ctx.font = `700 ${fontSize}px "Hiragino Mincho ProN", "Yu Mincho", "YuMincho", serif`;
+          ctx.fillStyle = "#1b1b1b";
+          ctx.textAlign = "left";
+          ctx.textBaseline = "bottom";
+          ctx.fillText(`REST ${clamped.toFixed(0)}%`, x, y - 6);
+          ctx.restore();
+        }
+
         function drawCountdown(value) {
           const w = viewWidth;
           const h = viewHeight;
@@ -318,6 +361,7 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
           drawTimeOverlay(lastTimeLeft);
           drawProgressOverlay(lastMoveProgress, lastHoldProgress);
           drawBottomProgressBars();
+          drawRestProgress(lastRestProgress);
         }
 
         function drawStartPrompt() {
@@ -347,6 +391,7 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
           drawTimeOverlay(lastTimeLeft);
           drawProgressOverlay(lastMoveProgress, lastHoldProgress);
           drawBottomProgressBars();
+          drawRestProgress(lastRestProgress);
         }
 
         function drawFigure(progress) {
@@ -371,11 +416,19 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
           const hip = 30 * scale;
 
           const depth = Math.max(0, Math.min(1, progress));
+          const fatigue = Math.max(0, Math.min(1, lastOverallProgress / 100));
+          const restFactor = restActive ? 1 - lastRestProgress / 100 : 1;
+          const swing = swingStart + (swingStop - swingStart) * (fatigue * fatigue);
+          const tremorAmp = scale * swing;
+          const base = (Math.PI * 2 * freq * tremorTime) / 1000;
+          const tremor =
+            Math.sin(base) * tremorAmp * restFactor +
+            Math.sin(base * 2.4) * tremorAmp * 0.4 * restFactor;
           const hipTop = ground - (thigh + shin);
           const hipBottom = ground - shin + 6 * scale;
           const hipY = lerp(hipTop, hipBottom, depth);
-          const hipX = w * 0.5;
-          const shoulderX = hipX - depth * 26 * scale;
+          const hipX = w * 0.5 + tremor;
+          const shoulderX = hipX - depth * 26 * scale + tremor * 0.3;
           const shoulderY = hipY - torso + depth * 12 * scale;
 
           const footY = ground;
@@ -434,6 +487,7 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
           drawTimeOverlay(lastTimeLeft);
           drawProgressOverlay(lastMoveProgress, lastHoldProgress);
           drawBottomProgressBars();
+          drawRestProgress(lastRestProgress);
         }
 
         function update() {
@@ -447,6 +501,8 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
             lastHoldProgress = 0;
             lastOverallProgress = 0;
             lastSetProgress = 0;
+            lastRestProgress = 0;
+            restActive = false;
             line1.textContent = `Slow Squat  Set: 1/${sets}  Rep: 1/${count}`;
             line2.textContent = `Phase: DOWN  Tempo: down ${down.toFixed(
               1
@@ -480,6 +536,7 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
           }
 
           const effectiveNow = paused && pauseStarted ? pauseStarted : now;
+          tremorTime = effectiveNow;
           const elapsed = Math.max(0, effectiveNow - animationStart - pausedTotal);
           const overallMs = overallTotal * 1000;
           const done = elapsed >= overallMs;
@@ -516,6 +573,8 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
             moveProgress = 100;
             completed = count;
             lastSetProgress = 100;
+            restActive = false;
+            lastRestProgress = 100;
           } else if (isRest) {
             phase = "REST";
             depth = 0;
@@ -523,7 +582,18 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
             holdProgress = 0;
             completed = 0;
             lastSetProgress = 100;
+            restActive = true;
+            if (interval > 0) {
+              lastRestProgress = Math.max(
+                0,
+                Math.min(100, ((interval * 1000 - restRemainingMs) / (interval * 1000)) * 100)
+              );
+            } else {
+              lastRestProgress = 100;
+            }
           } else {
+            restActive = false;
+            lastRestProgress = 0;
             const withinSetSec = withinSetMs / 1000;
             completed = Math.min(Math.floor(withinSetSec / repDuration), count);
             const within = withinSetSec - completed * repDuration;
@@ -637,9 +707,26 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
           requestAnimationFrame(update);
         }
 
+        function skipCountdown() {
+          if (started) {
+            return;
+          }
+          countdownStarted = true;
+          started = true;
+          animationStart = performance.now();
+          paused = false;
+          pauseStarted = null;
+          pausedTotal = 0;
+          requestAnimationFrame(update);
+        }
+
         window.addEventListener("keydown", (event) => {
           if (event.code === "Enter") {
-            startCountdown();
+            if (!countdownStarted) {
+              startCountdown();
+            } else if (!started) {
+              skipCountdown();
+            }
             return;
           }
           if (event.code === "Space") {
@@ -662,7 +749,11 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
           }
           event.preventDefault();
           if (!started) {
-            startCountdown();
+            if (!countdownStarted) {
+              startCountdown();
+            } else {
+              skipCountdown();
+            }
             return;
           }
           togglePause();
@@ -676,7 +767,11 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
             }
             event.preventDefault();
             if (!started) {
-              startCountdown();
+              if (!countdownStarted) {
+                startCountdown();
+              } else {
+                skipCountdown();
+              }
               return;
             }
             togglePause();
@@ -738,6 +833,12 @@ struct SquatWebArgs {
   sets: u32,
   #[arg(long, default_value_t = 60, value_parser = clap::value_parser!(u64).range(0..))]
   interval: u64,
+  #[arg(long, default_value_t = 0.4, value_parser = clap::value_parser!(f64))]
+  swing_start: f64,
+  #[arg(long, default_value_t = 3.4, value_parser = clap::value_parser!(f64))]
+  swing_stop: f64,
+  #[arg(long, default_value_t = 10.0, value_parser = clap::value_parser!(f64))]
+  freq: f64,
   #[arg(long, default_value = "127.0.0.1:12002")]
   addr: String,
 }
@@ -816,12 +917,23 @@ fn terminal_rows() -> usize {
     .unwrap_or(DEFAULT_ROWS)
 }
 
-fn squat_web_html(duration: u64, count: u32, sets: u32, interval: u64) -> String {
+fn squat_web_html(
+  duration: u64,
+  count: u32,
+  sets: u32,
+  interval: u64,
+  swing_start: f64,
+  swing_stop: f64,
+  freq: f64,
+) -> String {
   SQUAT_WEB_HTML
     .replace("__DURATION__", &duration.to_string())
     .replace("__COUNT__", &count.to_string())
     .replace("__SETS__", &sets.to_string())
     .replace("__INTERVAL__", &interval.to_string())
+    .replace("__SWING_START__", &format!("{:.3}", swing_start))
+    .replace("__SWING_STOP__", &format!("{:.3}", swing_stop))
+    .replace("__FREQ__", &format!("{:.3}", freq))
     .replace("__HOLD__", &format!("{:.1}", HOLD_SECS))
 }
 
@@ -1070,6 +1182,14 @@ fn run_squat_web(args: SquatWebArgs) -> Result<()> {
       HOLD_SECS
     ));
   }
+  if args.swing_start.is_sign_negative()
+    || args.swing_stop.is_sign_negative()
+    || args.freq.is_sign_negative()
+  {
+    return Err(color_eyre::eyre::eyre!(
+      "swing-start, swing-stop, and freq must be >= 0"
+    ));
+  }
   let exit_flag = Arc::new(AtomicBool::new(false));
   let exit_flag_clone = exit_flag.clone();
   ctrlc::set_handler(move || {
@@ -1077,7 +1197,15 @@ fn run_squat_web(args: SquatWebArgs) -> Result<()> {
   })?;
 
   let server = Server::http(&args.addr).map_err(|err| color_eyre::eyre::eyre!(err))?;
-  let html = squat_web_html(args.duration, args.count, args.sets, args.interval);
+  let html = squat_web_html(
+    args.duration,
+    args.count,
+    args.sets,
+    args.interval,
+    args.swing_start,
+    args.swing_stop,
+    args.freq,
+  );
   let content_type = Header::from_bytes("Content-Type", "text/html; charset=utf-8")
     .map_err(|_| color_eyre::eyre::eyre!("invalid content-type header"))?;
 
