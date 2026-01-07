@@ -119,6 +119,8 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
         const moveDuration = (repDuration - hold) / 2;
         const down = moveDuration;
         const up = moveDuration;
+        const isTouch =
+          "ontouchstart" in window || (navigator.maxTouchPoints || 0) > 0;
 
         const line1 = document.getElementById("line1");
         const line2 = document.getElementById("line2");
@@ -138,8 +140,10 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
         let lastMoveProgress = 0;
         let lastHoldProgress = 0;
         let lastTimeLeft = "00:00.000";
+        let lastOverallProgress = 0;
         const countdownSeconds = 5;
-        let countdownStart = performance.now();
+        let countdownStarted = false;
+        let countdownStart = null;
         let started = false;
         let animationStart = null;
 
@@ -242,6 +246,37 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
           ctx.restore();
         }
 
+        function drawOverallProgress(value) {
+          const w = viewWidth;
+          const h = viewHeight;
+          if (!w || !h) {
+            return;
+          }
+          const clamped = Math.max(0, Math.min(100, value));
+          const barWidth = Math.max(220, Math.floor(w * 0.55));
+          const barHeight = Math.max(16, Math.floor(h * 0.035));
+          const x = Math.floor((w - barWidth) * 0.5);
+          const y = Math.floor(h * 0.9);
+
+          ctx.save();
+          ctx.fillStyle = "rgba(246, 242, 232, 0.9)";
+          ctx.fillRect(x - 6, y - 6, barWidth + 12, barHeight + 12);
+          ctx.strokeStyle = "#1b1b1b";
+          ctx.lineWidth = 3;
+          ctx.strokeRect(x, y, barWidth, barHeight);
+
+          ctx.fillStyle = "#b33a2b";
+          ctx.fillRect(x, y, (barWidth * clamped) / 100, barHeight);
+
+          const fontSize = Math.max(18, Math.floor(h * 0.05));
+          ctx.font = `700 ${fontSize}px "Hiragino Mincho ProN", "Yu Mincho", "YuMincho", serif`;
+          ctx.fillStyle = "#1b1b1b";
+          ctx.textAlign = "center";
+          ctx.textBaseline = "bottom";
+          ctx.fillText(`${clamped.toFixed(2)}%`, w / 2, y - 8);
+          ctx.restore();
+        }
+
         function drawCountdown(value) {
           const w = viewWidth;
           const h = viewHeight;
@@ -259,6 +294,34 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
           ctx.fillText(String(value), w / 2, h / 2);
           drawTimeOverlay(lastTimeLeft);
           drawProgressOverlay(lastMoveProgress, lastHoldProgress);
+          drawOverallProgress(lastOverallProgress);
+        }
+
+        function drawStartPrompt() {
+          const w = viewWidth;
+          const h = viewHeight;
+          if (!w || !h) {
+            return;
+          }
+          ctx.clearRect(0, 0, w, h);
+          ctx.fillStyle = "#f6f2e8";
+          ctx.fillRect(0, 0, w, h);
+          ctx.fillStyle = "#1b1b1b";
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          const fontSize = Math.max(22, Math.floor(h * 0.12));
+          const lineHeight = Math.floor(fontSize * 1.15);
+          ctx.font = `700 ${fontSize}px "Hiragino Mincho ProN", "Yu Mincho", "YuMincho", serif`;
+          const lines = isTouch ? ["TAP", "TO", "START"] : ["PRESS", "ENTER", "TO", "START"];
+          const totalHeight = lineHeight * (lines.length - 1);
+          let y = h / 2 - totalHeight / 2;
+          for (const line of lines) {
+            ctx.fillText(line, w / 2, y);
+            y += lineHeight;
+          }
+          drawTimeOverlay(lastTimeLeft);
+          drawProgressOverlay(lastMoveProgress, lastHoldProgress);
+          drawOverallProgress(lastOverallProgress);
         }
 
         function drawFigure(progress) {
@@ -345,6 +408,7 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
           line(ankleRX - foot, footY, ankleRX + foot, footY);
           drawTimeOverlay(lastTimeLeft);
           drawProgressOverlay(lastMoveProgress, lastHoldProgress);
+          drawOverallProgress(lastOverallProgress);
         }
 
         function update() {
@@ -353,20 +417,27 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
           }
           const now = performance.now();
           if (!started) {
-            const elapsedCountdown = now - countdownStart;
-            const remainingCountdown = Math.max(
-              1,
-              countdownSeconds - Math.floor(elapsedCountdown / 1000)
-            );
             currentProgress = 0;
             lastMoveProgress = 0;
             lastHoldProgress = 0;
+            lastOverallProgress = 0;
             line1.textContent = `Slow Squat  Rep: 1/${count}`;
             line2.textContent = `Phase: DOWN  Tempo: down ${down.toFixed(
               1
             )}s / hold ${hold.toFixed(1)}s / up ${up.toFixed(1)}s`;
             lastTimeLeft = formatTimeLeft(total * 1000);
             line4.textContent = `Time left: ${lastTimeLeft}`;
+            if (!countdownStarted) {
+              line5.textContent = isTouch ? "Status: WAITING (TAP)" : "Status: WAITING (ENTER)";
+              drawStartPrompt();
+              requestAnimationFrame(update);
+              return;
+            }
+            const elapsedCountdown = now - countdownStart;
+            const remainingCountdown = Math.max(
+              1,
+              countdownSeconds - Math.floor(elapsedCountdown / 1000)
+            );
             line5.textContent = `Status: COUNTDOWN ${remainingCountdown}`;
             drawCountdown(remainingCountdown);
 
@@ -425,6 +496,10 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
             lastHoldProgress = Math.max(0, Math.min(100, holdProgress));
           }
           const remaining = Math.max(0, total * 1000 - elapsed);
+          lastOverallProgress = Math.max(
+            0,
+            Math.min(100, (elapsed / (total * 1000)) * 100)
+          );
           lastTimeLeft = formatTimeLeft(remaining);
           const current = Math.min(completed + 1, count);
 
@@ -473,13 +548,30 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
         window.addEventListener("resize", () => {
           resize();
           if (!started) {
-            drawCountdown(Math.max(1, countdownSeconds));
+            if (countdownStarted) {
+              drawCountdown(Math.max(1, countdownSeconds));
+            } else {
+              drawStartPrompt();
+            }
           } else {
             drawFigure(currentProgress);
           }
         });
 
+        function startCountdown() {
+          if (started || countdownStarted) {
+            return;
+          }
+          countdownStarted = true;
+          countdownStart = performance.now();
+          requestAnimationFrame(update);
+        }
+
         window.addEventListener("keydown", (event) => {
+          if (event.code === "Enter") {
+            startCountdown();
+            return;
+          }
           if (event.code === "Space") {
             event.preventDefault();
             togglePause();
@@ -493,6 +585,34 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
             stop();
           }
         });
+
+        canvas.addEventListener("pointerdown", (event) => {
+          if (!isTouch) {
+            return;
+          }
+          event.preventDefault();
+          if (!started) {
+            startCountdown();
+            return;
+          }
+          togglePause();
+        });
+
+        canvas.addEventListener(
+          "touchstart",
+          (event) => {
+            if (!isTouch) {
+              return;
+            }
+            event.preventDefault();
+            if (!started) {
+              startCountdown();
+              return;
+            }
+            togglePause();
+          },
+          { passive: false }
+        );
 
         resize();
         requestAnimationFrame(update);
