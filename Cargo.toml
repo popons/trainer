@@ -1,6 +1,6 @@
 [package]
 name = "trainer"
-version = "0.4.0"
+version = "0.5.0"
 authors = ["Yutaka Furukawa <frkw@fuse.co.jp>"]
 edition = "2024"
 
