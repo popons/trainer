@@ -63,6 +63,14 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
         --paper: rgba(255, 255, 255, 0.78);
         --shadow: 0 18px 50px rgba(36, 32, 27, 0.18);
       }
+      body[data-parity="odd"] {
+        --accent: #c24a3a;
+        --accent-2: #2f6f6d;
+      }
+      body[data-parity="even"] {
+        --accent: #2f6f6d;
+        --accent-2: #3c5e89;
+      }
       * {
         box-sizing: border-box;
       }
@@ -304,12 +312,29 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
         const isTouch =
           "ontouchstart" in window || (navigator.maxTouchPoints || 0) > 0;
         const supportsPointer = "PointerEvent" in window;
-        const palette = {
-          ink: "#1d1c1a",
+        const dayParity = (() => {
+          const base = new Date(2000, 0, 1);
+          const today = new Date();
+          base.setHours(0, 0, 0, 0);
+          today.setHours(0, 0, 0, 0);
+          const diffDays = Math.floor((today - base) / 86400000);
+          return diffDays % 2 === 0 ? "EVEN" : "ODD";
+        })();
+        document.body.dataset.parity = dayParity.toLowerCase();
+
+        function readCssVar(name, fallback) {
+          const value = getComputedStyle(document.documentElement)
+            .getPropertyValue(name)
+            .trim();
+          return value || fallback;
+        }
+
+        let palette = {
+          ink: readCssVar("--ink", "#1d1c1a"),
           inkSoft: "rgba(29, 28, 26, 0.65)",
-          accent: "#c24a3a",
-          accent2: "#2f6f6d",
-          paper: "rgba(255, 255, 255, 0.86)",
+          accent: readCssVar("--accent", "#c24a3a"),
+          accent2: readCssVar("--accent-2", "#2f6f6d"),
+          paper: readCssVar("--paper", "rgba(255, 255, 255, 0.86)"),
           paperStrong: "rgba(255, 255, 255, 0.95)",
           grid: "rgba(29, 28, 26, 0.08)",
         };
@@ -356,6 +381,7 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
         let speechReady = false;
         let availableVoices = [];
         let lastCountdownSpoken = null;
+        let completionAnnounced = false;
 
         try {
           const stored = localStorage.getItem(voiceStorageKey);
@@ -370,6 +396,9 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
             try {
               localStorage.setItem(voiceStorageKey, voiceEnabled ? "1" : "0");
             } catch {}
+            if (voiceEnabled) {
+              unlockSpeech();
+            }
           });
         }
         if ("speechSynthesis" in window) {
@@ -553,8 +582,14 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
           const x = w - boxW - paddingX;
           const y = paddingY;
           drawPanel(x, y, boxW, boxH, Math.min(16, boxH / 2));
-          ctx.fillStyle = palette.accent;
-          ctx.fillRect(x, y, 4, boxH);
+          if (dayParity === "EVEN") {
+            ctx.save();
+            ctx.strokeStyle = palette.accent2;
+            ctx.lineWidth = Math.max(2, Math.floor(fontSize * 0.08));
+            roundedRectPath(x - 3, y - 3, boxW + 6, boxH + 6, Math.min(18, (boxH + 6) / 2));
+            ctx.stroke();
+            ctx.restore();
+          }
           ctx.fillStyle = palette.ink;
           ctx.fillText(text, x + paddingX, y + boxH / 2);
           ctx.restore();
@@ -895,6 +930,7 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
             lastPhase = "";
             calloutText = "";
             lastCountdownSpoken = null;
+            completionAnnounced = false;
             line1.textContent = `Slow Squat  Set: 1/${sets}  Rep: 1/${count}`;
             line2.textContent = `Phase: DOWN  Tempo: down ${down.toFixed(
               1
@@ -1029,6 +1065,11 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
               : setIndex + 1;
           const current = isRest ? 0 : Math.min(completed + 1, count);
 
+          if (done && !completionAnnounced) {
+            triggerCalloutMessage("WORKOUT COMPLETE!", "workout complete", effectiveNow);
+            completionAnnounced = true;
+          }
+
           if (!done && !isRest) {
             if (phase !== lastPhase) {
               triggerCallout(phase, effectiveNow);
@@ -1055,7 +1096,8 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
 
           drawFigure(clamped);
 
-          if (!done && !stopped) {
+          const calloutActive = calloutText && effectiveNow <= calloutUntil;
+          if (!stopped && (!done || calloutActive)) {
             requestAnimationFrame(update);
           }
         }
@@ -1095,6 +1137,18 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
           speakText(String(value));
         }
 
+        function triggerCalloutMessage(displayText, speechText, now) {
+          if (!displayText) {
+            return;
+          }
+          calloutText = displayText;
+          calloutStart = now;
+          calloutUntil = now + calloutDurationMs;
+          if (speechText) {
+            speakText(speechText);
+          }
+        }
+
         function unlockSpeech() {
           if (!voiceEnabled || speechReady) {
             return;
@@ -1123,13 +1177,7 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
           } else if (phase === "UP") {
             text = "UP!";
           }
-          if (!text) {
-            return;
-          }
-          calloutText = text;
-          calloutStart = now;
-          calloutUntil = now + calloutDurationMs;
-          speakPhase(phase);
+          triggerCalloutMessage(text, phase, now);
         }
 
         function togglePause() {
