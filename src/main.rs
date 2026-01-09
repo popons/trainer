@@ -193,6 +193,7 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
         margin-top: 8px;
         display: flex;
         align-items: center;
+        flex-wrap: wrap;
         gap: 12px;
         font-size: 12px;
         letter-spacing: 0.04em;
@@ -279,6 +280,10 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
             Voice
           </label>
           <span>DOWN / HOLD / UP</span>
+          <label>
+            <input id="awake-toggle" type="checkbox" />
+            Keep Awake
+          </label>
         </div>
       </div>
       <div id="canvas-wrap">
@@ -347,6 +352,7 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
         const line4 = document.getElementById("line4");
         const line5 = document.getElementById("line5");
         const voiceToggle = document.getElementById("voice-toggle");
+        const awakeToggle = document.getElementById("awake-toggle");
 
         const canvas = document.getElementById("squat");
         const ctx = canvas.getContext("2d");
@@ -376,12 +382,59 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
         let calloutStart = 0;
         let calloutUntil = 0;
         let lastPhase = "";
+        const insightDurationMs = 4000;
+        let insightLines = [];
+        let insightStart = 0;
+        let insightUntil = 0;
+        let insightPos = { x: 0, y: 0 };
+        let lastInsightPhase = "";
         const voiceStorageKey = "squatVoiceEnabled";
         let voiceEnabled = true;
         let speechReady = false;
         let availableVoices = [];
         let lastCountdownSpoken = null;
         let completionAnnounced = false;
+        const awakeStorageKey = "squatKeepAwake";
+        let keepAwakeEnabled = true;
+        let wakeLock = null;
+        let wakeVideo = null;
+        const wakeVideoSrc =
+          "data:video/mp4;base64,AAAAIGZ0eXBpc29tAAACAGlzb21pc28yYXZjMW1wNDEAAAMcbW9vdgAAAGxtdmhkAAAAAAAAAAAAAAAAAAAD6AAAC7gAAQAAAQAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgAAAkZ0cmFrAAAAXHRraGQAAAADAAAAAAAAAAAAAAABAAAAAAAAC7gAAAAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAABAAAAAAAIAAAACAAAAAAAkZWR0cwAAABxlbHN0AAAAAAAAAAEAAAu4AAAAAAABAAAAAAG+bWRpYQAAACBtZGhkAAAAAAAAAAAAAAAAAABAAAAAwABVxAAAAAAALWhkbHIAAAAAAAAAAHZpZGUAAAAAAAAAAAAAAABWaWRlb0hhbmRsZXIAAAABaW1pbmYAAAAUdm1oZAAAAAEAAAAAAAAAAAAAACRkaW5mAAAAHGRyZWYAAAAAAAAAAQAAAAx1cmwgAAAAAQAAASlzdGJsAAAApXN0c2QAAAAAAAAAAQAAAJVhdmMxAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAAIAAgBIAAAASAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGP//AAAAL2F2Y0MBQsAK/+EAF2dCwArafiIjARAAAAMAEAAAAwAg8SJqAQAFaM4BlyAAAAAQcGFzcAAAAAEAAAABAAAAGHN0dHMAAAAAAAAAAQAAAAMAAEAAAAAAFHN0c3MAAAAAAAAAAQAAAAEAAAAcc3RzYwAAAAAAAAABAAAAAQAAAAMAAAABAAAAIHN0c3oAAAAAAAAAAAAAAAMAAAJkAAAACQAAAAkAAAAUc3RjbwAAAAAAAAABAAADTAAAAGJ1ZHRhAAAAWm1ldGEAAAAAAAAAIWhkbHIAAAAAAAAAAG1kaXJhcHBsAAAAAAAAAAAAAAAALWlsc3QAAAAlqXRvbwAAAB1kYXRhAAAAAQAAAABMYXZmNTguMjkuMTAwAAAACGZyZWUAAAJ+bWRhdAAAAlMGBf//T9xF6b3m2Ui3lizYINkj7u94MjY0IC0gY29yZSAxNTUgcjI5MTcgMGE4NGQ5OCAtIEguMjY0L01QRUctNCBBVkMgY29kZWMgLSBDb3B5bGVmdCAyMDAzLTIwMTggLSBodHRwOi8vd3d3LnZpZGVvbGFuLm9yZy94MjY0Lmh0bWwgLSBvcHRpb25zOiBjYWJhYz0wIHJlZj0xIGRlYmxvY2s9MDowOjAgYW5hbHlzZT0wOjAgbWU9ZGlhIHN1Ym1lPTAgcHN5PTEgcHN5X3JkPTEuMDA6MC4wMCBtaXhlZF9yZWY9MCBtZV9yYW5nZT0xNiBjaHJvbWFfbWU9MSB0cmVsbGlzPTEgOHg4ZGN0PTAgY3FtPTAgZGVhZHpvbmU9MjEsMTEgZmFzdF9wc2tpcD0xIGNocm9tYV9xcF9vZmZzZXQ9MCB0aHJlYWRzPTEgbG9va2FoZWFkX3RocmVhZHM9MSBzbGljZWRfdGhyZWFkcz0wIG5yPTAgZGVjaW1hdGU9MSBpbnRlcmxhY2VkPTAgYmx1cmF5X2NvbXBhdD0wIGNvbnN0cmFpbmVkX2ludHJhPTAgYmZyYW1lcz0wIHdlaWdodHA9MCBrZXlpbnQ9MjUwIGtleWludF9taW49MSBzY2VuZWN1dD0wIGludHJhX3JlZnJlc2g9MCByYz1jcmYgbWJ0cmVlPTAgY3JmPTUxLjAgcWNvbXA9MC42MCBxcG1pbj0wIHFwbWF4PTY5IHFwc3RlcD00IGlwX3JhdGlvPTEuNDAgYXE9MACAAAAACWWIhDomKAAVwAAAAAVBmiAUpQAAAAVBmkAVpQ==";
+        const insightBank = {
+          DOWN: [
+            ["酸素を取り込み中！", "ATP生成スタート！"],
+            ["PCr分解でATP補給！", "有酸素代謝も動員！"],
+            ["酸素が徐々に不足！", "解糖系へスイッチ！"],
+            ["乳酸が出始める！", "H+が増え始める！"],
+            ["無機リン酸が蓄積！", "収縮が鈍り始める！"],
+            ["筋繊維が伸張！", "微細損傷で強くなる！"],
+            ["血流はまだ確保！", "O2取り込み中！"],
+          ],
+          HOLD: [
+            ["血流がほぼ遮断！", "簡易BFR状態だ！"],
+            ["酸素補給ストップ！", "無酸素でATP生成！"],
+            ["乳酸とH+がピーク！", "pH低下で燃える！"],
+            ["K+が周囲に蓄積！", "疲労シグナル増！"],
+            ["代謝物が閉じ込め！", "筋が悲鳴だ！"],
+            ["交感神経が加速！", "心拍・血圧↑！"],
+          ],
+          UP: [
+            ["ATP消費が最大！", "速筋も動員！"],
+            ["乳酸/CO2が血中へ！", "呼吸が加速！"],
+            ["H+とK+が流出！", "疲労物質を放出！"],
+            ["血流が再開！", "酸素が入り始める！"],
+            ["酸素負債を返済！", "心拍がピーク！"],
+            ["筋長が有利に！", "ここから楽になる！"],
+          ],
+          REST: [
+            ["EPOCで酸素補給！", "不足分を回収中！"],
+            ["乳酸が全身へ！", "コリ回路で再利用！"],
+            ["H+が緩衝される！", "CO2として排出！"],
+            ["ATP/PCr再合成！", "次セット準備完了！"],
+            ["血流が回復！", "筋内環境リセット！"],
+            ["換気量が増加！", "CO2排出↑！"],
+          ],
+        };
 
         try {
           const stored = localStorage.getItem(voiceStorageKey);
@@ -398,6 +451,26 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
             } catch {}
             if (voiceEnabled) {
               unlockSpeech();
+            }
+          });
+        }
+        try {
+          const stored = localStorage.getItem(awakeStorageKey);
+          if (stored !== null) {
+            keepAwakeEnabled = stored === "1";
+          }
+        } catch {}
+        if (awakeToggle) {
+          awakeToggle.checked = keepAwakeEnabled;
+          awakeToggle.addEventListener("change", () => {
+            keepAwakeEnabled = awakeToggle.checked;
+            try {
+              localStorage.setItem(awakeStorageKey, keepAwakeEnabled ? "1" : "0");
+            } catch {}
+            if (keepAwakeEnabled) {
+              enableKeepAwake();
+            } else {
+              releaseKeepAwake();
             }
           });
         }
@@ -438,6 +511,14 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
 
         function lerp(a, b, t) {
           return a + (b - a) * t;
+        }
+
+        function clamp(value, min, max) {
+          return Math.min(max, Math.max(min, value));
+        }
+
+        function randBetween(min, max) {
+          return min + Math.random() * (max - min);
         }
 
         function line(ax, ay, bx, by) {
@@ -624,6 +705,52 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
           ctx.shadowBlur = 16;
           ctx.fillStyle = palette.ink;
           ctx.fillText(calloutText, 0, 0);
+          ctx.restore();
+        }
+
+        function drawInsight(now) {
+          if (!insightLines || insightLines.length === 0) {
+            return;
+          }
+          if (now > insightUntil) {
+            return;
+          }
+          const w = viewWidth;
+          const h = viewHeight;
+          if (!w || !h) {
+            return;
+          }
+          const elapsed = Math.max(0, now - insightStart);
+          const progress = Math.min(1, elapsed / insightDurationMs);
+          const alpha = 1 - progress;
+          const scale = 1 + (1 - progress) * 0.04;
+          const fontSize = Math.max(14, Math.floor(h * 0.04));
+          const lineHeight = Math.floor(fontSize * 1.25);
+          const paddingX = Math.floor(fontSize * 0.8);
+          const paddingY = Math.floor(fontSize * 0.7);
+
+          ctx.save();
+          ctx.translate(insightPos.x, insightPos.y);
+          ctx.scale(scale, scale);
+          ctx.globalAlpha = alpha;
+          ctx.font = `700 ${fontSize}px ${fontSans}`;
+          ctx.textAlign = "center";
+          ctx.textBaseline = "top";
+          const widths = insightLines.map((line) => ctx.measureText(line).width);
+          const maxWidth = widths.length ? Math.max(...widths) : 0;
+          const boxW = maxWidth + paddingX * 2;
+          const boxH = lineHeight * insightLines.length + paddingY * 2;
+          roundedRectPath(-boxW / 2, -boxH / 2, boxW, boxH, Math.min(14, boxH / 2));
+          ctx.fillStyle = "rgba(255, 255, 255, 0.78)";
+          ctx.fill();
+          ctx.strokeStyle = "rgba(29, 28, 26, 0.15)";
+          ctx.lineWidth = 1;
+          ctx.stroke();
+          ctx.fillStyle = palette.ink;
+          insightLines.forEach((line, idx) => {
+            const y = -boxH / 2 + paddingY + idx * lineHeight;
+            ctx.fillText(line, 0, y);
+          });
           ctx.restore();
         }
 
@@ -908,6 +1035,7 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
           line(ankleRX - foot, footY, ankleRX + foot, footY);
           ctx.restore();
           drawCallout(tremorTime);
+          drawInsight(tremorTime);
           drawTimeOverlay(lastTimeLeft);
           drawProgressOverlay(lastMoveProgress, lastHoldProgress);
           drawBottomProgressBars();
@@ -928,7 +1056,9 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
             lastRestProgress = 0;
             restActive = false;
             lastPhase = "";
+            lastInsightPhase = "";
             calloutText = "";
+            insightLines = [];
             lastCountdownSpoken = null;
             completionAnnounced = false;
             line1.textContent = `Slow Squat  Set: 1/${sets}  Rep: 1/${count}`;
@@ -1070,6 +1200,11 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
             completionAnnounced = true;
           }
 
+          if (!done && phase !== lastInsightPhase) {
+            triggerInsight(phase, effectiveNow);
+            lastInsightPhase = phase;
+          }
+
           if (!done && !isRest) {
             if (phase !== lastPhase) {
               triggerCallout(phase, effectiveNow);
@@ -1149,6 +1284,86 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
           }
         }
 
+        function triggerInsight(phase, now) {
+          const list = insightBank[phase];
+          if (!list || list.length === 0) {
+            return;
+          }
+          const entry = list[Math.floor(Math.random() * list.length)];
+          insightLines = Array.isArray(entry) ? entry : [entry];
+          const w = viewWidth;
+          const h = viewHeight;
+          if (!w || !h) {
+            return;
+          }
+          const x = w * 0.5 + randBetween(-w * 0.18, w * 0.18);
+          const y = h * 0.56 + randBetween(-h * 0.18, h * 0.12);
+          insightPos = {
+            x: clamp(x, 80, w - 80),
+            y: clamp(y, 80, h - 80),
+          };
+          insightStart = now;
+          insightUntil = now + insightDurationMs;
+        }
+
+        async function enableKeepAwake() {
+          if (!keepAwakeEnabled) {
+            return;
+          }
+          const locked = await requestWakeLock();
+          if (locked) {
+            return;
+          }
+          ensureWakeVideo();
+          if (wakeVideo) {
+            wakeVideo.play().catch(() => {});
+          }
+        }
+
+        async function requestWakeLock() {
+          if (!("wakeLock" in navigator)) {
+            return false;
+          }
+          try {
+            wakeLock = await navigator.wakeLock.request("screen");
+            wakeLock.addEventListener("release", () => {
+              wakeLock = null;
+            });
+            return true;
+          } catch {
+            wakeLock = null;
+            return false;
+          }
+        }
+
+        function ensureWakeVideo() {
+          if (wakeVideo) {
+            return;
+          }
+          wakeVideo = document.createElement("video");
+          wakeVideo.setAttribute("playsinline", "");
+          wakeVideo.setAttribute("webkit-playsinline", "");
+          wakeVideo.muted = true;
+          wakeVideo.loop = true;
+          wakeVideo.src = wakeVideoSrc;
+          wakeVideo.style.position = "fixed";
+          wakeVideo.style.width = "1px";
+          wakeVideo.style.height = "1px";
+          wakeVideo.style.opacity = "0";
+          wakeVideo.style.pointerEvents = "none";
+          document.body.appendChild(wakeVideo);
+        }
+
+        function releaseKeepAwake() {
+          if (wakeLock) {
+            wakeLock.release().catch(() => {});
+            wakeLock = null;
+          }
+          if (wakeVideo) {
+            wakeVideo.pause();
+          }
+        }
+
         function unlockSpeech() {
           if (!voiceEnabled || speechReady) {
             return;
@@ -1222,11 +1437,24 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
             drawFigure(currentProgress);
           }
         });
+        document.addEventListener("visibilitychange", () => {
+          if (document.hidden) {
+            if (wakeLock) {
+              wakeLock.release().catch(() => {});
+              wakeLock = null;
+            }
+            return;
+          }
+          if (keepAwakeEnabled) {
+            enableKeepAwake();
+          }
+        });
 
         function startCountdown() {
           if (started || countdownStarted) {
             return;
           }
+          enableKeepAwake();
           unlockSpeech();
           countdownStarted = true;
           countdownStart = performance.now();
@@ -1237,6 +1465,7 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
           if (started) {
             return;
           }
+          enableKeepAwake();
           unlockSpeech();
           countdownStarted = true;
           started = true;
