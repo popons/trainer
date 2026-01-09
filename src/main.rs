@@ -372,6 +372,8 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
         let lastRestProgress = 0;
         let restActive = false;
         let tremorTime = 0;
+        const tremorDecayMs = 60 * 1000;
+        let tremorFade = 1;
         const countdownSeconds = 5;
         let countdownStarted = false;
         let countdownStart = null;
@@ -383,17 +385,20 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
         let calloutUntil = 0;
         let lastPhase = "";
         const insightDurationMs = 4000;
+        const restInsightIntervalMs = 5000;
         let insightLines = [];
         let insightStart = 0;
         let insightUntil = 0;
         let insightPos = { x: 0, y: 0 };
         let lastInsightPhase = "";
+        let lastRestInsightAt = 0;
         const voiceStorageKey = "squatVoiceEnabled";
         let voiceEnabled = true;
         let speechReady = false;
         let availableVoices = [];
         let lastCountdownSpoken = null;
         let completionAnnounced = false;
+        let completionAt = null;
         const awakeStorageKey = "squatKeepAwake";
         let keepAwakeEnabled = true;
         let wakeLock = null;
@@ -402,37 +407,78 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
           "data:video/mp4;base64,AAAAIGZ0eXBpc29tAAACAGlzb21pc28yYXZjMW1wNDEAAAMcbW9vdgAAAGxtdmhkAAAAAAAAAAAAAAAAAAAD6AAAC7gAAQAAAQAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgAAAkZ0cmFrAAAAXHRraGQAAAADAAAAAAAAAAAAAAABAAAAAAAAC7gAAAAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAAAAAAAAABAAAAAAAIAAAACAAAAAAAkZWR0cwAAABxlbHN0AAAAAAAAAAEAAAu4AAAAAAABAAAAAAG+bWRpYQAAACBtZGhkAAAAAAAAAAAAAAAAAABAAAAAwABVxAAAAAAALWhkbHIAAAAAAAAAAHZpZGUAAAAAAAAAAAAAAABWaWRlb0hhbmRsZXIAAAABaW1pbmYAAAAUdm1oZAAAAAEAAAAAAAAAAAAAACRkaW5mAAAAHGRyZWYAAAAAAAAAAQAAAAx1cmwgAAAAAQAAASlzdGJsAAAApXN0c2QAAAAAAAAAAQAAAJVhdmMxAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAAIAAgBIAAAASAAAAAAAAAABAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGP//AAAAL2F2Y0MBQsAK/+EAF2dCwArafiIjARAAAAMAEAAAAwAg8SJqAQAFaM4BlyAAAAAQcGFzcAAAAAEAAAABAAAAGHN0dHMAAAAAAAAAAQAAAAMAAEAAAAAAFHN0c3MAAAAAAAAAAQAAAAEAAAAcc3RzYwAAAAAAAAABAAAAAQAAAAMAAAABAAAAIHN0c3oAAAAAAAAAAAAAAAMAAAJkAAAACQAAAAkAAAAUc3RjbwAAAAAAAAABAAADTAAAAGJ1ZHRhAAAAWm1ldGEAAAAAAAAAIWhkbHIAAAAAAAAAAG1kaXJhcHBsAAAAAAAAAAAAAAAALWlsc3QAAAAlqXRvbwAAAB1kYXRhAAAAAQAAAABMYXZmNTguMjkuMTAwAAAACGZyZWUAAAJ+bWRhdAAAAlMGBf//T9xF6b3m2Ui3lizYINkj7u94MjY0IC0gY29yZSAxNTUgcjI5MTcgMGE4NGQ5OCAtIEguMjY0L01QRUctNCBBVkMgY29kZWMgLSBDb3B5bGVmdCAyMDAzLTIwMTggLSBodHRwOi8vd3d3LnZpZGVvbGFuLm9yZy94MjY0Lmh0bWwgLSBvcHRpb25zOiBjYWJhYz0wIHJlZj0xIGRlYmxvY2s9MDowOjAgYW5hbHlzZT0wOjAgbWU9ZGlhIHN1Ym1lPTAgcHN5PTEgcHN5X3JkPTEuMDA6MC4wMCBtaXhlZF9yZWY9MCBtZV9yYW5nZT0xNiBjaHJvbWFfbWU9MSB0cmVsbGlzPTEgOHg4ZGN0PTAgY3FtPTAgZGVhZHpvbmU9MjEsMTEgZmFzdF9wc2tpcD0xIGNocm9tYV9xcF9vZmZzZXQ9MCB0aHJlYWRzPTEgbG9va2FoZWFkX3RocmVhZHM9MSBzbGljZWRfdGhyZWFkcz0wIG5yPTAgZGVjaW1hdGU9MSBpbnRlcmxhY2VkPTAgYmx1cmF5X2NvbXBhdD0wIGNvbnN0cmFpbmVkX2ludHJhPTAgYmZyYW1lcz0wIHdlaWdodHA9MCBrZXlpbnQ9MjUwIGtleWludF9taW49MSBzY2VuZWN1dD0wIGludHJhX3JlZnJlc2g9MCByYz1jcmYgbWJ0cmVlPTAgY3JmPTUxLjAgcWNvbXA9MC42MCBxcG1pbj0wIHFwbWF4PTY5IHFwc3RlcD00IGlwX3JhdGlvPTEuNDAgYXE9MACAAAAACWWIhDomKAAVwAAAAAVBmiAUpQAAAAVBmkAVpQ==";
         const insightBank = {
           DOWN: [
-            ["酸素を取り込み中！", "ATP生成スタート！"],
-            ["PCr分解でATP補給！", "有酸素代謝も動員！"],
-            ["酸素が徐々に不足！", "解糖系へスイッチ！"],
-            ["乳酸が出始める！", "H+が増え始める！"],
-            ["無機リン酸が蓄積！", "収縮が鈍り始める！"],
-            ["筋繊維が伸張！", "微細損傷で強くなる！"],
-            ["血流はまだ確保！", "O2取り込み中！"],
+            ["酸素を取り込み中", "ATP生成が進む"],
+            ["PCr分解でATP補給", "有酸素代謝が動員"],
+            ["酸素が徐々に不足", "解糖系が増える"],
+            ["乳酸が出始める", "H+が増え始める"],
+            ["無機リン酸が蓄積", "収縮効率が低下"],
+            ["筋繊維が伸張", "微細損傷が起こる"],
+            ["血流はまだ確保", "O2取り込み中"],
+            ["グリコーゲン消費が進行", "ATP供給が続く"],
+            ["熱が生まれる", "代謝が上がる"],
+            ["低酸素の兆し", "解糖系へ移行"],
+            ["PCrが減る", "解糖が主役に"],
+            ["酸素はあるが減少", "無酸素比率が増える"],
+            ["H+が増える", "酸性化が進む"],
+            ["張力を維持", "代謝ストレス増"],
+            ["ATPを消費", "エネルギー需要増"],
+            ["乳酸が増える", "代謝産物が蓄積"],
           ],
           HOLD: [
-            ["血流がほぼ遮断！", "簡易BFR状態だ！"],
-            ["酸素補給ストップ！", "無酸素でATP生成！"],
-            ["乳酸とH+がピーク！", "pH低下で燃える！"],
-            ["K+が周囲に蓄積！", "疲労シグナル増！"],
-            ["代謝物が閉じ込め！", "筋が悲鳴だ！"],
-            ["交感神経が加速！", "心拍・血圧↑！"],
+            ["血流がほぼ遮断", "BFRに近い状態"],
+            ["酸素補給ストップ", "無酸素でATP生成"],
+            ["嫌気性代謝が主役", "酸素が足りない"],
+            ["嫌気的解糖が加速", "ATPを必死に生成"],
+            ["乳酸とH+がピーク", "pHが低下"],
+            ["K+が周囲に蓄積", "膜電位が乱れる"],
+            ["代謝物が閉じ込め", "疲労物質が滞留"],
+            ["交感神経が加速", "心拍・血圧↑"],
+            ["血管が圧迫", "酸素が届かない"],
+            ["ATPが減る", "解糖がフル稼働"],
+            ["Piがたまる", "収縮効率が低下"],
+            ["筋グリコーゲン消費", "燃料が減る"],
+            ["エクササイズ反射", "呼吸が増加"],
+            ["低酸素が最大", "血流遮断が強い"],
+            ["乳酸が信号", "成長ホルモン刺激"],
+            ["酸性度が上昇", "酵素活性が低下"],
+            ["K+で膜電位乱れ", "興奮伝導が低下"],
+            ["血流が最少", "代謝物が滞留"],
+            ["等尺性収縮中", "張力が維持"],
+            ["H+が蓄積", "筋収縮が弱まる"],
           ],
           UP: [
-            ["ATP消費が最大！", "速筋も動員！"],
-            ["乳酸/CO2が血中へ！", "呼吸が加速！"],
-            ["H+とK+が流出！", "疲労物質を放出！"],
-            ["血流が再開！", "酸素が入り始める！"],
-            ["酸素負債を返済！", "心拍がピーク！"],
-            ["筋長が有利に！", "ここから楽になる！"],
+            ["ATP消費が最大", "速筋も動員"],
+            ["乳酸/CO2が血中へ", "呼吸が増える"],
+            ["H+とK+が流出", "疲労物質を排出"],
+            ["血流が再開", "酸素が入り始める"],
+            ["酸素負債を返済", "心拍が高い"],
+            ["ATP再合成が開始", "酸素が利用される"],
+            ["CO2排出が進む", "換気量が増える"],
+            ["血流が回る", "栄養が入る"],
+            ["体温が上昇", "熱放散が必要"],
+            ["乳酸が全身へ", "他組織で利用"],
+            ["交感神経が高い", "循環が加速"],
+            ["酸素が戻る", "代謝が回復"],
+            ["CO2が増える", "呼吸中枢が刺激"],
+            ["酸素供給が不足", "無酸素比率が残る"],
           ],
           REST: [
-            ["EPOCで酸素補給！", "不足分を回収中！"],
-            ["乳酸が全身へ！", "コリ回路で再利用！"],
-            ["H+が緩衝される！", "CO2として排出！"],
-            ["ATP/PCr再合成！", "次セット準備完了！"],
-            ["血流が回復！", "筋内環境リセット！"],
-            ["換気量が増加！", "CO2排出↑！"],
+            ["EPOCで酸素補給", "不足分を回収中"],
+            ["乳酸が全身へ", "コリ回路で再利用"],
+            ["H+が緩衝される", "CO2として排出"],
+            ["H+ + HCO3- -> CO2 + H2O", "酸性を中和して排出"],
+            ["CO2 <-> H2CO3 <-> HCO3- + H+", "呼吸でCO2を抜く"],
+            ["ATP/PCr再合成", "次の収縮に備える"],
+            ["血流が回復", "筋内環境リセット"],
+            ["換気量が増加", "CO2排出↑"],
+            ["心拍が低下", "回復モードへ"],
+            ["酸素負債を回収", "呼吸が深くなる"],
+            ["グルコース吸収", "燃料が補給"],
+            ["Na+/K+ポンプ作動", "K+が回収"],
+            ["H+が減少", "pHが回復"],
+            ["乳酸が燃料化", "心臓や筋で利用"],
+            ["血管が拡張", "血流が改善"],
+            ["体温が高い", "放熱が続く"],
           ],
         };
 
@@ -937,8 +983,9 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
           const tremorAmp = scale * swing;
           const base = (Math.PI * 2 * freq * tremorTime) / 1000;
           const tremor =
-            Math.sin(base) * tremorAmp * restFactor +
-            Math.sin(base * 2.4) * tremorAmp * 0.4 * restFactor;
+            (Math.sin(base) * tremorAmp * restFactor +
+              Math.sin(base * 2.4) * tremorAmp * 0.4 * restFactor) *
+            tremorFade;
           const hipTop = ground - (thigh + shin);
           const hipBottom = ground - shin + 6 * scale;
           const hipY = lerp(hipTop, hipBottom, depth);
@@ -1035,11 +1082,11 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
           line(ankleRX - foot, footY, ankleRX + foot, footY);
           ctx.restore();
           drawCallout(tremorTime);
-          drawInsight(tremorTime);
           drawTimeOverlay(lastTimeLeft);
           drawProgressOverlay(lastMoveProgress, lastHoldProgress);
           drawBottomProgressBars();
           drawRestProgress(lastRestProgress);
+          drawInsight(tremorTime);
         }
 
         function update() {
@@ -1059,8 +1106,11 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
             lastInsightPhase = "";
             calloutText = "";
             insightLines = [];
+            lastRestInsightAt = 0;
             lastCountdownSpoken = null;
             completionAnnounced = false;
+            completionAt = null;
+            tremorFade = 1;
             line1.textContent = `Slow Squat  Set: 1/${sets}  Rep: 1/${count}`;
             line2.textContent = `Phase: DOWN  Tempo: down ${down.toFixed(
               1
@@ -1198,11 +1248,30 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
           if (done && !completionAnnounced) {
             triggerCalloutMessage("WORKOUT COMPLETE!", "workout complete", effectiveNow);
             completionAnnounced = true;
+            if (completionAt === null) {
+              completionAt = effectiveNow;
+            }
+          }
+          if (done && completionAt !== null) {
+            const elapsedSinceComplete = Math.max(0, effectiveNow - completionAt);
+            tremorFade = 1 - Math.min(1, elapsedSinceComplete / tremorDecayMs);
+          } else {
+            tremorFade = 1;
           }
 
           if (!done && phase !== lastInsightPhase) {
             triggerInsight(phase, effectiveNow);
             lastInsightPhase = phase;
+          }
+          if (!done && isRest) {
+            if (lastRestInsightAt === 0) {
+              lastRestInsightAt = effectiveNow;
+            } else if (effectiveNow - lastRestInsightAt >= restInsightIntervalMs) {
+              triggerInsight("REST", effectiveNow);
+              lastRestInsightAt = effectiveNow;
+            }
+          } else if (!isRest) {
+            lastRestInsightAt = 0;
           }
 
           if (!done && !isRest) {
@@ -1232,7 +1301,8 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
           drawFigure(clamped);
 
           const calloutActive = calloutText && effectiveNow <= calloutUntil;
-          if (!stopped && (!done || calloutActive)) {
+          const tremorActive = tremorFade > 0;
+          if (!stopped && (!done || calloutActive || tremorActive)) {
             requestAnimationFrame(update);
           }
         }
