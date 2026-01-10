@@ -210,6 +210,34 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
         height: 16px;
         accent-color: var(--accent);
       }
+      #settings select {
+        font-size: 12px;
+        padding: 2px 8px;
+        border-radius: 8px;
+        border: 1px solid var(--grid);
+        background: rgba(255, 255, 255, 0.9);
+        color: var(--ink);
+      }
+      #settings input:disabled,
+      #settings select:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+      #fps {
+        position: absolute;
+        right: 14px;
+        bottom: 12px;
+        font-size: 12px;
+        font-weight: 700;
+        font-family: "SF Mono", "Menlo", "Consolas", monospace;
+        padding: 4px 8px;
+        border-radius: 10px;
+        background: rgba(255, 255, 255, 0.8);
+        color: var(--ink);
+        border: 1px solid var(--grid);
+        z-index: 2;
+        pointer-events: none;
+      }
       #canvas-wrap {
         flex: 1;
         display: flex;
@@ -284,10 +312,26 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
             <input id="awake-toggle" type="checkbox" />
             Keep Awake
           </label>
+          <label>
+            <input id="lightweight-toggle" type="checkbox" />
+            Lightweight
+          </label>
+          <label>
+            FPS
+            <select id="fps-select">
+              <option value="10">10</option>
+              <option value="20">20</option>
+              <option value="30">30</option>
+              <option value="40">40</option>
+              <option value="50">50</option>
+              <option value="60">60</option>
+            </select>
+          </label>
         </div>
       </div>
       <div id="canvas-wrap">
         <canvas id="squat"></canvas>
+        <div id="fps">FPS --</div>
       </div>
     </div>
     <script>
@@ -353,6 +397,9 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
         const line5 = document.getElementById("line5");
         const voiceToggle = document.getElementById("voice-toggle");
         const awakeToggle = document.getElementById("awake-toggle");
+        const lightweightToggle = document.getElementById("lightweight-toggle");
+        const fpsSelect = document.getElementById("fps-select");
+        const fpsDisplay = document.getElementById("fps");
 
         const canvas = document.getElementById("squat");
         const ctx = canvas.getContext("2d");
@@ -401,6 +448,18 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
         let completionAt = null;
         const awakeStorageKey = "squatKeepAwake";
         let keepAwakeEnabled = true;
+        let keepAwakePreference = true;
+        const lightweightStorageKey = "squatLightweight";
+        const fpsStorageKey = "squatTargetFps";
+        const fpsOptions = [10, 20, 30, 40, 50, 60];
+        const lightweightFps = 30;
+        let selectedFps = 60;
+        let lightweight = true;
+        let targetFps = lightweightFps;
+        let insightEnabled = true;
+        let lastRenderAt = 0;
+        let fpsFrames = 0;
+        let fpsLastTick = 0;
         let wakeLock = null;
         let wakeVideo = null;
         const wakeVideoSrc =
@@ -503,16 +562,21 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
         try {
           const stored = localStorage.getItem(awakeStorageKey);
           if (stored !== null) {
-            keepAwakeEnabled = stored === "1";
+            keepAwakePreference = stored === "1";
           }
         } catch {}
+        keepAwakeEnabled = keepAwakePreference;
         if (awakeToggle) {
-          awakeToggle.checked = keepAwakeEnabled;
+          awakeToggle.checked = keepAwakePreference;
           awakeToggle.addEventListener("change", () => {
-            keepAwakeEnabled = awakeToggle.checked;
+            keepAwakePreference = awakeToggle.checked;
             try {
-              localStorage.setItem(awakeStorageKey, keepAwakeEnabled ? "1" : "0");
+              localStorage.setItem(awakeStorageKey, keepAwakePreference ? "1" : "0");
             } catch {}
+            if (lightweight) {
+              return;
+            }
+            keepAwakeEnabled = keepAwakePreference;
             if (keepAwakeEnabled) {
               enableKeepAwake();
             } else {
@@ -520,6 +584,43 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
             }
           });
         }
+        try {
+          const stored = localStorage.getItem(lightweightStorageKey);
+          if (stored !== null) {
+            lightweight = stored === "1";
+          }
+        } catch {}
+        try {
+          const stored = localStorage.getItem(fpsStorageKey);
+          if (stored !== null) {
+            selectedFps = normalizeFps(stored);
+          }
+        } catch {}
+        if (lightweightToggle) {
+          lightweightToggle.checked = lightweight;
+          lightweightToggle.addEventListener("change", () => {
+            lightweight = lightweightToggle.checked;
+            try {
+              localStorage.setItem(lightweightStorageKey, lightweight ? "1" : "0");
+            } catch {}
+            applyLightweightSettings();
+          });
+        }
+        if (fpsSelect) {
+          fpsSelect.value = String(selectedFps);
+          fpsSelect.addEventListener("change", () => {
+            selectedFps = normalizeFps(fpsSelect.value);
+            fpsSelect.value = String(selectedFps);
+            try {
+              localStorage.setItem(fpsStorageKey, String(selectedFps));
+            } catch {}
+            if (!lightweight) {
+              targetFps = selectedFps;
+              lastRenderAt = 0;
+            }
+          });
+        }
+        applyLightweightSettings();
         if ("speechSynthesis" in window) {
           const refreshVoices = () => {
             try {
@@ -545,14 +646,75 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
           return `${pad2(minutes)}:${pad2(seconds)}.${String(millis).padStart(3, "0")}`;
         }
 
+        function normalizeFps(value) {
+          const num = Number(value);
+          if (!Number.isFinite(num)) {
+            return 60;
+          }
+          const rounded = Math.round(num);
+          return fpsOptions.includes(rounded) ? rounded : 60;
+        }
+
+        function applyLightweightSettings() {
+          targetFps = lightweight ? lightweightFps : selectedFps;
+          insightEnabled = !lightweight;
+          if (lightweight) {
+            insightLines = [];
+            lastInsightPhase = "";
+            lastRestInsightAt = 0;
+          }
+          if (fpsSelect) {
+            fpsSelect.disabled = lightweight;
+          }
+          if (awakeToggle) {
+            awakeToggle.disabled = lightweight;
+            if (lightweight) {
+              keepAwakeEnabled = false;
+              awakeToggle.checked = false;
+              releaseKeepAwake();
+            } else {
+              keepAwakeEnabled = keepAwakePreference;
+              awakeToggle.checked = keepAwakePreference;
+              if (keepAwakeEnabled) {
+                enableKeepAwake();
+              } else {
+                releaseKeepAwake();
+              }
+            }
+          }
+          lastRenderAt = 0;
+          fpsFrames = 0;
+          fpsLastTick = 0;
+          if (fpsDisplay) {
+            fpsDisplay.textContent = "FPS --";
+          }
+          resize();
+        }
+
         function resize() {
           const rect = canvas.getBoundingClientRect();
           viewWidth = rect.width;
           viewHeight = rect.height;
-          const dpr = window.devicePixelRatio || 1;
+          const dpr = lightweight ? 1 : window.devicePixelRatio || 1;
           canvas.width = rect.width * dpr;
           canvas.height = rect.height * dpr;
           ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        }
+
+        function updateFps(now) {
+          fpsFrames += 1;
+          if (fpsLastTick === 0) {
+            fpsLastTick = now;
+          }
+          const elapsed = now - fpsLastTick;
+          if (elapsed >= 1000) {
+            const fps = (fpsFrames * 1000) / elapsed;
+            fpsFrames = 0;
+            fpsLastTick = now;
+            if (fpsDisplay) {
+              fpsDisplay.textContent = `FPS ${fps.toFixed(1)}`;
+            }
+          }
         }
 
         function lerp(a, b, t) {
@@ -755,6 +917,9 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
         }
 
         function drawInsight(now) {
+          if (!insightEnabled) {
+            return;
+          }
           if (!insightLines || insightLines.length === 0) {
             return;
           }
@@ -1094,6 +1259,7 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
             return;
           }
           const now = performance.now();
+          const frameInterval = 1000 / Math.max(1, targetFps);
           if (!started) {
             currentProgress = 0;
             lastMoveProgress = 0;
@@ -1119,7 +1285,11 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
             line4.textContent = `Time left: ${lastTimeLeft}`;
             if (!countdownStarted) {
               line5.textContent = isTouch ? "Status: WAITING (TAP)" : "Status: WAITING (ENTER)";
-              drawStartPrompt();
+              if (now - lastRenderAt >= frameInterval) {
+                drawStartPrompt();
+                lastRenderAt = now;
+                updateFps(now);
+              }
               requestAnimationFrame(update);
               return;
             }
@@ -1133,7 +1303,11 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
               lastCountdownSpoken = remainingCountdown;
             }
             line5.textContent = `Status: COUNTDOWN ${remainingCountdown}`;
-            drawCountdown(remainingCountdown);
+            if (now - lastRenderAt >= frameInterval) {
+              drawCountdown(remainingCountdown);
+              lastRenderAt = now;
+              updateFps(now);
+            }
 
             if (elapsedCountdown >= countdownSeconds * 1000) {
               started = true;
@@ -1298,7 +1472,11 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
             line5.textContent = "Status: RUNNING";
           }
 
-          drawFigure(clamped);
+          if (now - lastRenderAt >= frameInterval) {
+            drawFigure(clamped);
+            lastRenderAt = now;
+            updateFps(now);
+          }
 
           const calloutActive = calloutText && effectiveNow <= calloutUntil;
           const tremorActive = tremorFade > 0;
@@ -1355,6 +1533,9 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
         }
 
         function triggerInsight(phase, now) {
+          if (!insightEnabled) {
+            return;
+          }
           const list = insightBank[phase];
           if (!list || list.length === 0) {
             return;
