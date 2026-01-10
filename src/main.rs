@@ -238,6 +238,24 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
         z-index: 2;
         pointer-events: none;
       }
+      #load {
+        position: absolute;
+        right: 14px;
+        bottom: 44px;
+        font-size: 12px;
+        font-weight: 700;
+        font-family: "SF Mono", "Menlo", "Consolas", monospace;
+        padding: 4px 8px;
+        border-radius: 10px;
+        background: rgba(255, 255, 255, 0.8);
+        color: var(--ink);
+        border: 1px solid var(--grid);
+        z-index: 2;
+        pointer-events: none;
+        max-width: 72%;
+        text-align: right;
+        line-height: 1.3;
+      }
       #canvas-wrap {
         flex: 1;
         display: flex;
@@ -331,6 +349,7 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
       </div>
       <div id="canvas-wrap">
         <canvas id="squat"></canvas>
+        <div id="load">LOAD --</div>
         <div id="fps">FPS --</div>
       </div>
     </div>
@@ -400,6 +419,7 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
         const lightweightToggle = document.getElementById("lightweight-toggle");
         const fpsSelect = document.getElementById("fps-select");
         const fpsDisplay = document.getElementById("fps");
+        const loadDisplay = document.getElementById("load");
 
         const canvas = document.getElementById("squat");
         const ctx = canvas.getContext("2d");
@@ -458,8 +478,20 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
         let targetFps = lightweightFps;
         let insightEnabled = true;
         let lastRenderAt = 0;
+        let lastFrameInterval = 1000 / 60;
         let fpsFrames = 0;
         let fpsLastTick = 0;
+        let loadWindowStart = 0;
+        let busyMs = 0;
+        let frameMsSum = 0;
+        let frameMsCount = 0;
+        let renderCount = 0;
+        let renderIntervalSum = 0;
+        let renderIntervalCount = 0;
+        let lastRenderStamp = 0;
+        let longTaskCount = 0;
+        let longTaskTime = 0;
+        let longTaskObserver = null;
         let wakeLock = null;
         let wakeVideo = null;
         const wakeVideoSrc =
@@ -632,6 +664,21 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
           refreshVoices();
           window.speechSynthesis.addEventListener("voiceschanged", refreshVoices);
         }
+        if ("PerformanceObserver" in window) {
+          try {
+            longTaskObserver = new PerformanceObserver((list) => {
+              for (const entry of list.getEntries()) {
+                if (entry.entryType === "longtask") {
+                  longTaskCount += 1;
+                  longTaskTime += entry.duration;
+                }
+              }
+            });
+            longTaskObserver.observe({ entryTypes: ["longtask"] });
+          } catch {
+            longTaskObserver = null;
+          }
+        }
 
         function pad2(value) {
           return String(value).padStart(2, "0");
@@ -685,8 +732,21 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
           lastRenderAt = 0;
           fpsFrames = 0;
           fpsLastTick = 0;
+          loadWindowStart = 0;
+          busyMs = 0;
+          frameMsSum = 0;
+          frameMsCount = 0;
+          renderCount = 0;
+          renderIntervalSum = 0;
+          renderIntervalCount = 0;
+          lastRenderStamp = 0;
+          longTaskCount = 0;
+          longTaskTime = 0;
           if (fpsDisplay) {
             fpsDisplay.textContent = "FPS --";
+          }
+          if (loadDisplay) {
+            loadDisplay.textContent = "MAIN BUSY --";
           }
           resize();
         }
@@ -715,6 +775,43 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
               fpsDisplay.textContent = `FPS ${fps.toFixed(1)}`;
             }
           }
+        }
+
+        function recordLoad(startAt, endAt) {
+          const cost = Math.max(0, endAt - startAt);
+          busyMs += cost;
+          if (loadWindowStart === 0) {
+            loadWindowStart = endAt;
+          }
+          const elapsed = endAt - loadWindowStart;
+          if (elapsed < 1000) {
+            return;
+          }
+          const busy = Math.min(100, (busyMs / elapsed) * 100);
+          const wait = Math.max(0, 100 - busy);
+          const actualFps = renderCount > 0 ? (renderCount * 1000) / elapsed : 0;
+          const avgDelta =
+            renderIntervalCount > 0 ? renderIntervalSum / renderIntervalCount : 0;
+          const drop =
+            targetFps > 0 ? Math.max(0, (1 - actualFps / targetFps) * 100) : 0;
+          if (loadDisplay) {
+            const fpsText = actualFps > 0 ? actualFps.toFixed(1) : "--";
+            const deltaText = avgDelta > 0 ? `${avgDelta.toFixed(1)}ms` : "--";
+            loadDisplay.textContent = `MAIN BUSY ${busy.toFixed(
+              0
+            )}%  WAIT ${wait.toFixed(0)}%  FPS ${fpsText}  Δ ${deltaText}  DROP ${drop.toFixed(
+              0
+            )}%  LT ${longTaskCount} (${longTaskTime.toFixed(0)}ms)`;
+          }
+          loadWindowStart = endAt;
+          busyMs = 0;
+          frameMsSum = 0;
+          frameMsCount = 0;
+          renderCount = 0;
+          renderIntervalSum = 0;
+          renderIntervalCount = 0;
+          longTaskCount = 0;
+          longTaskTime = 0;
         }
 
         function lerp(a, b, t) {
@@ -1258,8 +1355,10 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
           if (stopped) {
             return;
           }
-          const now = performance.now();
+          const updateStart = performance.now();
+          const now = updateStart;
           const frameInterval = 1000 / Math.max(1, targetFps);
+          lastFrameInterval = frameInterval;
           if (!started) {
             currentProgress = 0;
             lastMoveProgress = 0;
@@ -1277,6 +1376,7 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
             completionAnnounced = false;
             completionAt = null;
             tremorFade = 1;
+            lastRenderStamp = 0;
             line1.textContent = `Slow Squat  Set: 1/${sets}  Rep: 1/${count}`;
             line2.textContent = `Phase: DOWN  Tempo: down ${down.toFixed(
               1
@@ -1291,6 +1391,7 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
                 updateFps(now);
               }
               requestAnimationFrame(update);
+              recordLoad(updateStart, performance.now());
               return;
             }
             const elapsedCountdown = now - countdownStart;
@@ -1317,6 +1418,7 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
               pausedTotal = 0;
             } else {
               requestAnimationFrame(update);
+              recordLoad(updateStart, performance.now());
               return;
             }
           }
@@ -1473,9 +1575,22 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
           }
 
           if (now - lastRenderAt >= frameInterval) {
+            const renderStart = performance.now();
             drawFigure(clamped);
+            const renderEnd = performance.now();
+            frameMsSum += Math.max(0, renderEnd - renderStart);
+            frameMsCount += 1;
+            if (lastRenderStamp > 0) {
+              const delta = renderEnd - lastRenderStamp;
+              if (delta > 0) {
+                renderIntervalSum += delta;
+                renderIntervalCount += 1;
+              }
+            }
+            lastRenderStamp = renderEnd;
+            renderCount += 1;
             lastRenderAt = now;
-            updateFps(now);
+            updateFps(renderEnd);
           }
 
           const calloutActive = calloutText && effectiveNow <= calloutUntil;
@@ -1483,6 +1598,7 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
           if (!stopped && (!done || calloutActive || tremorActive)) {
             requestAnimationFrame(update);
           }
+          recordLoad(updateStart, performance.now());
         }
 
         function speakText(text) {
