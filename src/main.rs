@@ -218,6 +218,19 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
         background: rgba(255, 255, 255, 0.9);
         color: var(--ink);
       }
+      #voice-warning {
+        display: none;
+        align-items: center;
+        gap: 6px;
+        padding: 4px 10px;
+        border-radius: 999px;
+        border: 1px solid rgba(194, 74, 58, 0.45);
+        background: rgba(194, 74, 58, 0.12);
+        color: #8f2f25;
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 0.02em;
+      }
       #settings input:disabled,
       #settings select:disabled {
         opacity: 0.5;
@@ -325,6 +338,14 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
             <input id="voice-toggle" type="checkbox" />
             Voice
           </label>
+          <label>
+            Voice Lang
+            <select id="voice-lang">
+              <option value="en">EN</option>
+              <option value="ja">JP</option>
+            </select>
+          </label>
+          <span id="voice-warning" role="status" aria-live="polite"></span>
           <span>DOWN / HOLD / UP</span>
           <label>
             <input id="awake-toggle" type="checkbox" />
@@ -415,6 +436,8 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
         const line4 = document.getElementById("line4");
         const line5 = document.getElementById("line5");
         const voiceToggle = document.getElementById("voice-toggle");
+        const voiceLangSelect = document.getElementById("voice-lang");
+        const voiceWarning = document.getElementById("voice-warning");
         const awakeToggle = document.getElementById("awake-toggle");
         const lightweightToggle = document.getElementById("lightweight-toggle");
         const fpsSelect = document.getElementById("fps-select");
@@ -461,9 +484,13 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
         let lastInsightPhase = "";
         let lastRestInsightAt = 0;
         const voiceStorageKey = "squatVoiceEnabled";
+        const voiceLangStorageKey = "squatVoiceLang";
+        const voiceWarningText = "日本語音声が見つからないため英語で読み上げます";
         let voiceEnabled = true;
+        let voiceLang = "en";
         let speechReady = false;
         let availableVoices = [];
+        let hasJapaneseVoice = false;
         let lastCountdownSpoken = null;
         let lastRestCountdownSpoken = null;
         let completionAnnounced = false;
@@ -574,11 +601,33 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
             ["体温が高い", "放熱が続く"],
           ],
         };
+        const voicePhrases = {
+          en: {
+            DOWN: "down",
+            HOLD: "hold",
+            UP: "up",
+            INTERVAL_START: "interval start",
+            WORKOUT_COMPLETE: "workout complete",
+          },
+          ja: {
+            DOWN: "下げる",
+            HOLD: "止める",
+            UP: "上げる",
+            INTERVAL_START: "インターバル開始",
+            WORKOUT_COMPLETE: "ワークアウト完了",
+          },
+        };
 
         try {
           const stored = localStorage.getItem(voiceStorageKey);
           if (stored !== null) {
             voiceEnabled = stored === "1";
+          }
+        } catch {}
+        try {
+          const stored = localStorage.getItem(voiceLangStorageKey);
+          if (stored === "ja" || stored === "en") {
+            voiceLang = stored;
           }
         } catch {}
         if (voiceToggle) {
@@ -588,6 +637,19 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
             try {
               localStorage.setItem(voiceStorageKey, voiceEnabled ? "1" : "0");
             } catch {}
+            if (voiceEnabled) {
+              unlockSpeech();
+            }
+          });
+        }
+        if (voiceLangSelect) {
+          voiceLangSelect.value = voiceLang;
+          voiceLangSelect.addEventListener("change", () => {
+            voiceLang = voiceLangSelect.value === "ja" ? "ja" : "en";
+            try {
+              localStorage.setItem(voiceLangStorageKey, voiceLang);
+            } catch {}
+            updateVoiceWarning();
             if (voiceEnabled) {
               unlockSpeech();
             }
@@ -662,9 +724,12 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
             } catch {
               availableVoices = [];
             }
+            updateVoiceSupport();
           };
           refreshVoices();
           window.speechSynthesis.addEventListener("voiceschanged", refreshVoices);
+        } else {
+          updateVoiceWarning();
         }
         if ("PerformanceObserver" in window) {
           try {
@@ -751,6 +816,42 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
             loadDisplay.textContent = "MAIN BUSY --";
           }
           resize();
+        }
+
+        function updateVoiceWarning() {
+          if (!voiceWarning) {
+            return;
+          }
+          const shouldShow = voiceLang === "ja" && !hasJapaneseVoice;
+          voiceWarning.textContent = shouldShow ? voiceWarningText : "";
+          voiceWarning.style.display = shouldShow ? "inline-flex" : "none";
+        }
+
+        function updateVoiceSupport() {
+          hasJapaneseVoice = availableVoices.some((voice) =>
+            (voice.lang || "").toLowerCase().startsWith("ja")
+          );
+          updateVoiceWarning();
+        }
+
+        function getEffectiveVoiceLang() {
+          if (voiceLang === "ja" && !hasJapaneseVoice) {
+            return "en";
+          }
+          return voiceLang;
+        }
+
+        function voicePhraseFor(key) {
+          const effectiveLang = getEffectiveVoiceLang();
+          const phrases = voicePhrases[effectiveLang] || voicePhrases.en;
+          const fallback = voicePhrases.en[key];
+          return phrases[key] || fallback || key;
+        }
+
+        function selectVoiceForLang(langPrefix) {
+          return availableVoices.find((voice) =>
+            (voice.lang || "").toLowerCase().startsWith(langPrefix)
+          );
         }
 
         function resize() {
@@ -1462,7 +1563,7 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
           const enteringRest = isRest && !wasRest;
           const leavingRest = !isRest && wasRest;
           if (enteringRest && interval > 0) {
-            triggerCalloutMessage("INTERVAL START", "interval start", effectiveNow);
+            triggerCalloutMessage("INTERVAL START", voicePhraseFor("INTERVAL_START"), effectiveNow);
             lastRestCountdownSpoken = null;
           }
           if (leavingRest) {
@@ -1551,7 +1652,11 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
           }
 
           if (done && !completionAnnounced) {
-            triggerCalloutMessage("WORKOUT COMPLETE!", "workout complete", effectiveNow);
+            triggerCalloutMessage(
+              "WORKOUT COMPLETE!",
+              voicePhraseFor("WORKOUT_COMPLETE"),
+              effectiveNow
+            );
             completionAnnounced = true;
             if (completionAt === null) {
               completionAt = effectiveNow;
@@ -1649,11 +1754,21 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
             window.speechSynthesis.cancel();
             window.speechSynthesis.resume();
             const utter = new SpeechSynthesisUtterance(text);
-            const preferred = availableVoices.find((voice) =>
-              voice.lang.toLowerCase().startsWith("en")
-            );
+            const effectiveLang = getEffectiveVoiceLang();
+            let preferred = selectVoiceForLang(effectiveLang);
+            if (!preferred && effectiveLang !== "en") {
+              preferred = selectVoiceForLang("en");
+            }
+            if (!preferred && availableVoices.length > 0) {
+              preferred = availableVoices[0];
+            }
             if (preferred) {
               utter.voice = preferred;
+              if (preferred.lang) {
+                utter.lang = preferred.lang;
+              }
+            } else {
+              utter.lang = effectiveLang === "ja" ? "ja-JP" : "en-US";
             }
             utter.rate = 1;
             utter.pitch = 1;
@@ -1793,7 +1908,7 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
           } else if (phase === "UP") {
             text = "UP!";
           }
-          triggerCalloutMessage(text, phase, now);
+          triggerCalloutMessage(text, voicePhraseFor(phase), now);
         }
 
         function togglePause() {
