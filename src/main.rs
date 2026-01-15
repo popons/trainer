@@ -438,6 +438,7 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
         let lastSetProgress = 0;
         let lastRestProgress = 0;
         let restActive = false;
+        let wasRest = false;
         let tremorTime = 0;
         const tremorDecayMs = 60 * 1000;
         let tremorFade = 1;
@@ -464,6 +465,7 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
         let speechReady = false;
         let availableVoices = [];
         let lastCountdownSpoken = null;
+        let lastRestCountdownSpoken = null;
         let completionAnnounced = false;
         let completionAt = null;
         const awakeStorageKey = "squatKeepAwake";
@@ -1373,6 +1375,8 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
             insightLines = [];
             lastRestInsightAt = 0;
             lastCountdownSpoken = null;
+            lastRestCountdownSpoken = null;
+            wasRest = false;
             completionAnnounced = false;
             completionAt = null;
             tremorFade = 1;
@@ -1455,6 +1459,16 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
             }
           }
 
+          const enteringRest = isRest && !wasRest;
+          const leavingRest = !isRest && wasRest;
+          if (enteringRest && interval > 0) {
+            triggerCalloutMessage("INTERVAL START", "interval start", effectiveNow);
+            lastRestCountdownSpoken = null;
+          }
+          if (leavingRest) {
+            lastRestCountdownSpoken = null;
+          }
+
           if (done) {
             phase = "UP";
             depth = 0;
@@ -1520,6 +1534,21 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
               ? setIndex + 2
               : setIndex + 1;
           const current = isRest ? 0 : Math.min(completed + 1, count);
+          let restCountdownValue = null;
+          let restCountdownActive = false;
+          if (isRest && interval > 0) {
+            const countdownWindowMs = countdownSeconds * 1000;
+            if (restRemainingMs > 0 && restRemainingMs <= countdownWindowMs) {
+              restCountdownActive = true;
+              restCountdownValue = Math.max(1, Math.ceil(restRemainingMs / 1000));
+            }
+          }
+          if (restCountdownActive && restCountdownValue !== null) {
+            if (lastRestCountdownSpoken !== restCountdownValue) {
+              speakCountdown(restCountdownValue);
+              lastRestCountdownSpoken = restCountdownValue;
+            }
+          }
 
           if (done && !completionAnnounced) {
             triggerCalloutMessage("WORKOUT COMPLETE!", "workout complete", effectiveNow);
@@ -1576,7 +1605,11 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
 
           if (now - lastRenderAt >= frameInterval) {
             const renderStart = performance.now();
-            drawFigure(clamped);
+            if (restCountdownActive && restCountdownValue !== null) {
+              drawCountdown(restCountdownValue);
+            } else {
+              drawFigure(clamped);
+            }
             const renderEnd = performance.now();
             frameMsSum += Math.max(0, renderEnd - renderStart);
             frameMsCount += 1;
@@ -1593,6 +1626,7 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
             updateFps(renderEnd);
           }
 
+          wasRest = isRest;
           const calloutActive = calloutText && effectiveNow <= calloutUntil;
           const tremorActive = tremorFade > 0;
           if (!stopped && (!done || calloutActive || tremorActive)) {
