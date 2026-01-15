@@ -220,16 +220,22 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
       }
       #voice-warning {
         display: none;
-        align-items: center;
-        gap: 6px;
-        padding: 4px 10px;
-        border-radius: 999px;
-        border: 1px solid rgba(194, 74, 58, 0.45);
-        background: rgba(194, 74, 58, 0.12);
-        color: #8f2f25;
-        font-size: 11px;
-        font-weight: 600;
-        letter-spacing: 0.02em;
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        transform: translate(-50%, -50%);
+        max-width: min(80vw, 560px);
+        padding: 18px 24px;
+        border-radius: 18px;
+        border: 1px solid var(--grid);
+        background: rgba(255, 255, 255, 0.92);
+        box-shadow: var(--shadow);
+        color: var(--ink);
+        font-size: clamp(18px, 3.2vw, 28px);
+        font-weight: 700;
+        text-align: center;
+        z-index: 3;
+        pointer-events: none;
       }
       #settings input:disabled,
       #settings select:disabled {
@@ -345,7 +351,6 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
               <option value="ja">JP</option>
             </select>
           </label>
-          <span id="voice-warning" role="status" aria-live="polite"></span>
           <span>DOWN / HOLD / UP</span>
           <label>
             <input id="awake-toggle" type="checkbox" />
@@ -370,6 +375,7 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
       </div>
       <div id="canvas-wrap">
         <canvas id="squat"></canvas>
+        <div id="voice-warning" role="status" aria-live="polite"></div>
         <div id="load">LOAD --</div>
         <div id="fps">FPS --</div>
       </div>
@@ -485,7 +491,11 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
         let lastRestInsightAt = 0;
         const voiceStorageKey = "squatVoiceEnabled";
         const voiceLangStorageKey = "squatVoiceLang";
+        const voiceLoadingText = "音声一覧を読み込み中...";
         const voiceWarningText = "日本語音声が見つからないため英語で読み上げます";
+        const voiceLogPrefix = "[voice]";
+        const voiceLoadIntervalMs = 300;
+        const voiceLoadMaxRetries = 20;
         let voiceEnabled = true;
         let voiceLang = "en";
         let speechReady = false;
@@ -637,6 +647,7 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
             try {
               localStorage.setItem(voiceStorageKey, voiceEnabled ? "1" : "0");
             } catch {}
+            updateVoiceWarning();
             if (voiceEnabled) {
               unlockSpeech();
             }
@@ -726,9 +737,33 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
             }
             updateVoiceSupport();
           };
-          refreshVoices();
-          window.speechSynthesis.addEventListener("voiceschanged", refreshVoices);
+          const scheduleVoiceRefresh = (attempt) => {
+            if (attempt === 0) {
+              logVoiceStatus("音声一覧の読み込みを開始");
+            }
+            refreshVoices();
+            if (availableVoices.length > 0) {
+              logVoiceStatus("音声一覧の読み込み完了");
+              return;
+            }
+            if (attempt >= voiceLoadMaxRetries) {
+              logVoiceStatus("音声一覧の読み込みがタイムアウト");
+              return;
+            }
+            logVoiceStatus(
+              `読み込み待機中 (${attempt + 1}/${voiceLoadMaxRetries})`
+            );
+            setTimeout(() => {
+              scheduleVoiceRefresh(attempt + 1);
+            }, voiceLoadIntervalMs);
+          };
+          scheduleVoiceRefresh(0);
+          window.speechSynthesis.addEventListener("voiceschanged", () => {
+            logVoiceStatus("voiceschanged で更新");
+            refreshVoices();
+          });
         } else {
+          logVoiceStatus("speechSynthesis 非対応");
           updateVoiceWarning();
         }
         if ("PerformanceObserver" in window) {
@@ -822,9 +857,20 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
           if (!voiceWarning) {
             return;
           }
-          const shouldShow = voiceLang === "ja" && !hasJapaneseVoice;
+          if (!voiceEnabled || voiceLang !== "ja") {
+            voiceWarning.textContent = "";
+            voiceWarning.style.display = "none";
+            return;
+          }
+          const voicesLoaded = availableVoices.length > 0;
+          if (!voicesLoaded) {
+            voiceWarning.textContent = voiceLoadingText;
+            voiceWarning.style.display = "block";
+            return;
+          }
+          const shouldShow = !hasJapaneseVoice;
           voiceWarning.textContent = shouldShow ? voiceWarningText : "";
-          voiceWarning.style.display = shouldShow ? "inline-flex" : "none";
+          voiceWarning.style.display = shouldShow ? "block" : "none";
         }
 
         function updateVoiceSupport() {
@@ -832,6 +878,20 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
             (voice.lang || "").toLowerCase().startsWith("ja")
           );
           updateVoiceWarning();
+        }
+
+        function logVoiceStatus(message, extra = null) {
+          if (typeof console === "undefined" || !console.log) {
+            return;
+          }
+          const payload = {
+            count: availableVoices.length,
+            hasJapaneseVoice,
+          };
+          if (extra && typeof extra === "object") {
+            Object.assign(payload, extra);
+          }
+          console.log(`${voiceLogPrefix} ${message}`, payload);
         }
 
         function getEffectiveVoiceLang() {
@@ -1475,8 +1535,10 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
             calloutText = "";
             insightLines = [];
             lastRestInsightAt = 0;
-            lastCountdownSpoken = null;
-            lastRestCountdownSpoken = null;
+            if (!countdownStarted) {
+              lastCountdownSpoken = null;
+              lastRestCountdownSpoken = null;
+            }
             wasRest = false;
             completionAnnounced = false;
             completionAt = null;
@@ -1740,14 +1802,17 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
           recordLoad(updateStart, performance.now());
         }
 
-        function speakText(text) {
+        function speakText(text, meta = null) {
           if (!voiceEnabled) {
+            logVoiceStatus("発声スキップ: Voice OFF", { text, meta });
             return;
           }
           if (!speechReady) {
+            logVoiceStatus("発声スキップ: speechReady=false", { text, meta });
             return;
           }
           if (!("speechSynthesis" in window)) {
+            logVoiceStatus("発声スキップ: speechSynthesis 非対応", { text, meta });
             return;
           }
           try {
@@ -1762,6 +1827,9 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
             if (!preferred && availableVoices.length > 0) {
               preferred = availableVoices[0];
             }
+            const selected = preferred
+              ? { name: preferred.name, lang: preferred.lang }
+              : null;
             if (preferred) {
               utter.voice = preferred;
               if (preferred.lang) {
@@ -1773,16 +1841,34 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
             utter.rate = 1;
             utter.pitch = 1;
             utter.volume = 0.9;
+            utter.onstart = () => {
+              logVoiceStatus("発声開始", { text, meta, effectiveLang, selected });
+            };
+            utter.onend = () => {
+              logVoiceStatus("発声終了", { text, meta, effectiveLang, selected });
+            };
+            utter.onerror = (event) => {
+              logVoiceStatus("発声エラー", {
+                text,
+                meta,
+                effectiveLang,
+                selected,
+                error: event && event.error ? event.error : "unknown",
+              });
+            };
+            logVoiceStatus("発声要求", { text, meta, effectiveLang, selected });
             window.speechSynthesis.speak(utter);
-          } catch {}
+          } catch (err) {
+            logVoiceStatus("発声例外", { text, meta, error: String(err) });
+          }
         }
 
         function speakPhase(text) {
-          speakText(text);
+          speakText(text, { kind: "phase" });
         }
 
         function speakCountdown(value) {
-          speakText(String(value));
+          speakText(String(value), { kind: "countdown", value });
         }
 
         function triggerCalloutMessage(displayText, speechText, now) {
@@ -1793,7 +1879,7 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
           calloutStart = now;
           calloutUntil = now + calloutDurationMs;
           if (speechText) {
-            speakText(speechText);
+            speakText(speechText, { kind: "callout", displayText });
           }
         }
 
