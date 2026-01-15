@@ -210,6 +210,10 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
         height: 16px;
         accent-color: var(--accent);
       }
+      #settings input[type="range"] {
+        width: 140px;
+        accent-color: var(--accent);
+      }
       #settings select {
         font-size: 12px;
         padding: 2px 8px;
@@ -351,6 +355,11 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
               <option value="ja">JP</option>
             </select>
           </label>
+          <label>
+            Beep
+            <input id="beep-volume" type="range" min="0" max="100" step="1" />
+            <span id="beep-volume-value"></span>
+          </label>
           <span>DOWN / HOLD / UP</span>
           <label>
             <input id="awake-toggle" type="checkbox" />
@@ -444,6 +453,8 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
         const voiceToggle = document.getElementById("voice-toggle");
         const voiceLangSelect = document.getElementById("voice-lang");
         const voiceWarning = document.getElementById("voice-warning");
+        const beepVolumeSlider = document.getElementById("beep-volume");
+        const beepVolumeValue = document.getElementById("beep-volume-value");
         const awakeToggle = document.getElementById("awake-toggle");
         const lightweightToggle = document.getElementById("lightweight-toggle");
         const fpsSelect = document.getElementById("fps-select");
@@ -494,6 +505,11 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
         const voiceLoadingText = "音声一覧を読み込み中...";
         const voiceWarningText = "日本語音声が見つからないため英語で読み上げます";
         const voiceLogPrefix = "[voice]";
+        const beepIntervalMs = 1000;
+        const beepDurationMs = 60;
+        const beepFrequency = 880;
+        const beepVolumeStorageKey = "squatBeepVolume";
+        let beepVolume = 0.08;
         const voiceLoadIntervalMs = 300;
         const voiceLoadMaxRetries = 20;
         let voiceEnabled = true;
@@ -505,6 +521,10 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
         let lastRestCountdownSpoken = null;
         let completionAnnounced = false;
         let completionAt = null;
+        let lastBeepIndex = null;
+        let beepStartActiveMs = null;
+        let beepContext = null;
+        let beepGain = null;
         const awakeStorageKey = "squatKeepAwake";
         let keepAwakeEnabled = true;
         let keepAwakePreference = true;
@@ -640,6 +660,15 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
             voiceLang = stored;
           }
         } catch {}
+        try {
+          const stored = localStorage.getItem(beepVolumeStorageKey);
+          if (stored !== null) {
+            const parsed = Number(stored);
+            if (Number.isFinite(parsed)) {
+              beepVolume = Math.min(1, Math.max(0, parsed));
+            }
+          }
+        } catch {}
         if (voiceToggle) {
           voiceToggle.checked = voiceEnabled;
           voiceToggle.addEventListener("change", () => {
@@ -663,6 +692,26 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
             updateVoiceWarning();
             if (voiceEnabled) {
               unlockSpeech();
+            }
+          });
+        }
+        if (beepVolumeSlider) {
+          beepVolumeSlider.value = String(Math.round(beepVolume * 100));
+          if (beepVolumeValue) {
+            beepVolumeValue.textContent = `${Math.round(beepVolume * 100)}%`;
+          }
+          beepVolumeSlider.addEventListener("input", () => {
+            const raw = Number(beepVolumeSlider.value);
+            const clamped = Math.min(100, Math.max(0, raw));
+            beepVolume = clamped / 100;
+            if (beepVolumeValue) {
+              beepVolumeValue.textContent = `${Math.round(clamped)}%`;
+            }
+            try {
+              localStorage.setItem(beepVolumeStorageKey, String(beepVolume));
+            } catch {}
+            if (beepGain) {
+              beepGain.gain.value = beepVolume;
             }
           });
         }
@@ -912,6 +961,48 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
           return availableVoices.find((voice) =>
             (voice.lang || "").toLowerCase().startsWith(langPrefix)
           );
+        }
+
+        function ensureBeepAudio() {
+          if (beepContext) {
+            if (beepGain) {
+              beepGain.gain.value = beepVolume;
+            }
+            return;
+          }
+          const AudioCtx = window.AudioContext || window.webkitAudioContext;
+          if (!AudioCtx) {
+            return;
+          }
+          try {
+            beepContext = new AudioCtx();
+            beepGain = beepContext.createGain();
+            beepGain.gain.value = beepVolume;
+            beepGain.connect(beepContext.destination);
+          } catch {
+            beepContext = null;
+            beepGain = null;
+          }
+        }
+
+        function playBeep() {
+          ensureBeepAudio();
+          if (!beepContext || !beepGain) {
+            return;
+          }
+          if (beepContext.state === "suspended") {
+            beepContext.resume().catch(() => {});
+          }
+          const oscillator = beepContext.createOscillator();
+          oscillator.type = "sine";
+          oscillator.frequency.value = beepFrequency;
+          oscillator.connect(beepGain);
+          const now = beepContext.currentTime;
+          oscillator.start(now);
+          oscillator.stop(now + beepDurationMs / 1000);
+          oscillator.onended = () => {
+            oscillator.disconnect();
+          };
         }
 
         function resize() {
@@ -1539,6 +1630,8 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
               lastCountdownSpoken = null;
               lastRestCountdownSpoken = null;
             }
+            lastBeepIndex = null;
+            beepStartActiveMs = null;
             wasRest = false;
             completionAnnounced = false;
             completionAt = null;
@@ -1583,6 +1676,13 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
               paused = false;
               pauseStarted = null;
               pausedTotal = 0;
+              if (beepStartActiveMs === null) {
+                beepStartActiveMs = 0;
+                lastBeepIndex = 0;
+                if (voiceEnabled) {
+                  playBeep();
+                }
+              }
             } else {
               requestAnimationFrame(update);
               recordLoad(updateStart, performance.now());
@@ -1600,6 +1700,7 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
           let moveProgress = lastMoveProgress;
           let holdProgress = lastHoldProgress;
           let restRemainingMs = 0;
+          let activeElapsedMs = 0;
           let setIndex = 0;
           let withinSetMs = 0;
           let isRest = false;
@@ -1620,6 +1721,14 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
             } else {
               withinSetMs = withinCycle;
             }
+            const completedCycles = Math.floor(elapsed / cycleMs);
+            let restElapsedMs = completedCycles * restMs;
+            if (withinCycle > setMs) {
+              restElapsedMs += withinCycle - setMs;
+            }
+            activeElapsedMs = Math.max(0, elapsed - restElapsedMs);
+          } else {
+            activeElapsedMs = total * 1000 * sets;
           }
 
           const enteringRest = isRest && !wasRest;
@@ -1745,6 +1854,9 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
           } else if (!isRest) {
             lastRestInsightAt = 0;
           }
+          if (isRest) {
+            lastBeepIndex = null;
+          }
 
           if (!done && !isRest) {
             if (phase !== lastPhase) {
@@ -1753,6 +1865,26 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
             }
           } else {
             lastPhase = phase;
+          }
+
+          if (
+            !done &&
+            !isRest &&
+            started &&
+            !paused &&
+            voiceEnabled &&
+            beepStartActiveMs !== null
+          ) {
+            const delta = activeElapsedMs - beepStartActiveMs;
+            if (delta >= 0) {
+              const beepIndex = Math.floor(delta / beepIntervalMs);
+              if (lastBeepIndex === null) {
+                lastBeepIndex = beepIndex;
+              } else if (beepIndex !== lastBeepIndex) {
+                lastBeepIndex = beepIndex;
+                playBeep();
+              }
+            }
           }
 
           line1.textContent = `Slow Squat  Set: ${displaySet}/${sets}  Rep: ${done ? count : current}/${count}`;
@@ -2058,6 +2190,7 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
           }
           enableKeepAwake();
           unlockSpeech();
+          ensureBeepAudio();
           countdownStarted = true;
           countdownStart = performance.now();
           requestAnimationFrame(update);
@@ -2069,12 +2202,20 @@ const SQUAT_WEB_HTML: &str = r##"<!doctype html>
           }
           enableKeepAwake();
           unlockSpeech();
+          ensureBeepAudio();
           countdownStarted = true;
           started = true;
           animationStart = performance.now();
           paused = false;
           pauseStarted = null;
           pausedTotal = 0;
+          if (beepStartActiveMs === null) {
+            beepStartActiveMs = 0;
+            lastBeepIndex = 0;
+            if (voiceEnabled) {
+              playBeep();
+            }
+          }
           requestAnimationFrame(update);
         }
 
